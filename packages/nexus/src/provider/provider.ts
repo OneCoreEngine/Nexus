@@ -2257,24 +2257,31 @@ const layer = Layer.effect(
         }
       }
 
-      // Generic small model selection based on model capabilities and metadata
-      // instead of provider-specific hardcoding. Prioritizes models with:
-      // - Small context limits (cheaper/faster)
-      // - tool_call support
-      // - Recent release dates
-      const models = sortBy(
-        Object.values(provider.models),
-        [(model) => model.limit?.context ?? 0, "asc"], // Smaller context first
-        [(model) => model.release_date, "desc"], // Newer first
-        [(model) => model.id, "desc"],
+      // Azure model catalogs are deployment-shaped and their inferred entries
+      // do not reliably identify a provider small model. Let callers choose a
+      // deployment explicitly instead of silently selecting one.
+      if (providerID === ProviderV2.ID.azure || String(providerID) === "azure-cognitive-services") return undefined
+
+      // Prefer an explicitly known small-model family, then choose the newest
+      // model within that family. Do not infer a small model from context size:
+      // large flagship models can have smaller limits than a provider's small
+      // model, and inferred models without family metadata are not safe picks.
+      const candidates = Object.values(provider.models).filter(
+        (model) =>
+          Boolean(model.family) &&
+          model.capabilities?.toolcall !== false &&
+          model.capabilities?.tool_call !== false &&
+          model.status !== "deprecated",
       )
-      // Filter for text generation candidates with tool calling
-      const candidates = models.filter((model) => 
-        model.capabilities?.toolcall !== false && 
-        model.capabilities?.tool_call !== false &&
-        model.status !== "deprecated"
-      )
-      if (candidates[0]) return candidates[0]
+      for (const family of smallModelFamilyPriority) {
+        const match = candidates
+          .filter((model) => model.family === family)
+          .toSorted((a, b) => {
+            const release = b.release_date.localeCompare(a.release_date)
+            return release || b.id.localeCompare(a.id)
+          })[0]
+        if (match) return match
+      }
 
       return undefined
     })
@@ -2301,14 +2308,16 @@ const layer = Layer.effect(
           isTextGenerationCandidate(provider.id, configured.modelID, configuredInfo) &&
           hasUsableProviderCredential(provider, effectiveApiKeys)
         ) {
-          const healthy = yield* Effect.tryPromise({
-            try: () => checkProviderHealth(provider.id, effectiveApiKeys, provider.key),
-            catch: () => false,
-          })
-          if (healthy) return configured
-          // The configured provider/key is unavailable. Continue through the
-          // health-checked fallback providers below instead of retrying Groq.
+          // An explicit model is an intentional user choice. Resolve it
+          // without a network health check; the actual request will surface
+          // authentication, quota, or connectivity errors with full context.
+          return configured
         }
+        // Provider catalogs can lag behind newly released or deployment-
+        // specific model IDs. If the user explicitly configured such a model
+        // and the provider credential is available, preserve that choice; the
+        // request layer will report an invalid model if the upstream rejects it.
+        if (provider && !configuredInfo && hasUsableProviderCredential(provider, effectiveApiKeys)) return configured
         // If the configured provider/model is unavailable, fall through to recent/defaults.
       }
 

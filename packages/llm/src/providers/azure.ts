@@ -74,7 +74,7 @@ const configuredRoute = <Body, Prepared>(route: RouteDef<Body, Prepared>, input:
       // AtLeastOne guarantees at least one is set; baseURL wins if both are.
       baseURL: input.baseURL ?? resourceBaseURL(input.resourceName!),
       query: {
-        ...(input.apiVersion ? { "api-version": input.apiVersion } : {}),
+        "api-version": input.apiVersion ?? "v1",
         ...input.queryParams,
       },
     },

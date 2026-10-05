@@ -3,16 +3,16 @@ import { validationStatusForResponse } from "../../src/api/ApiVault"
 import { PROVIDER_CONTRACTS } from "../../src/api/providers"
 
 describe("API vault provider validation contracts", () => {
-  test("uses chat validation instead of treating OpenCode's public model catalog as proof", () => {
-    expect(PROVIDER_CONTRACTS.opencode.modelsEndpointPublic).toBeUndefined()
-    expect(validationStatusForResponse(PROVIDER_CONTRACTS.opencode, 200)).toBe("active")
+  test("uses the local Zen bridge model catalog for validation", () => {
+    expect(PROVIDER_CONTRACTS["zen-free"].modelsEndpointPublic).toBeUndefined()
+    expect(validationStatusForResponse(PROVIDER_CONTRACTS["zen-free"], 200)).toBe("active")
   })
 
-  test("uses OpenCode's OpenAI-compatible API and model catalog endpoints", () => {
-    expect(PROVIDER_CONTRACTS.opencode.modelsEndpoint).toBe("https://opencode.ai/zen/v1/models")
-    expect(PROVIDER_CONTRACTS.opencode.baseURL).toBe("https://opencode.ai/zen/v1")
-    expect(PROVIDER_CONTRACTS.opencode.npm).toBe("@ai-sdk/openai-compatible")
-    expect(PROVIDER_CONTRACTS.opencode.validation).toEqual({ kind: "chat", model: "big-pickle" })
+  test("uses the local OpenAI-compatible Zen bridge endpoints", () => {
+    expect(PROVIDER_CONTRACTS["zen-free"].modelsEndpoint).toBe("http://127.0.0.1:4897/v1/models")
+    expect(PROVIDER_CONTRACTS["zen-free"].baseURL).toBe("http://127.0.0.1:4897/v1")
+    expect(PROVIDER_CONTRACTS["zen-free"].npm).toBe("@ai-sdk/openai-compatible")
+    expect(PROVIDER_CONTRACTS["zen-free"].validation).toEqual({ kind: "models" })
   })
 
   test("maps provider authentication and quota failures to usable vault statuses", () => {
