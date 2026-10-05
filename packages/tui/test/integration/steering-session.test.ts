@@ -46,7 +46,7 @@ function createSessionHarness(overrides: Partial<SteeringDeps> = {}) {
   const [statusType, setStatusType] = createSignal<"idle" | "busy" | "retry">("idle")
   const [editorBlocked, setEditorBlocked] = createSignal(false)
   const [queueVersion, setQueueVersion] = createSignal(0)
-  pendingPrompts.subscribe(() => setQueueVersion((version) => version + 1))
+  pendingPrompts.subscribe(() => setQueueVersion((version: number) => version + 1))
   const queued = () => {
     queueVersion()
     return pendingPrompts.list(sessionID)
