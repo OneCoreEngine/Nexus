@@ -72,7 +72,7 @@ nix run github:ravipacharpro-jpg/nexus-Official   # latest dev branch
 
 ### Desktop App (BETA)
 
-NEXUS is also available as a desktop application. Download directly from the [releases page](https://github.com/ravipacharpro-jpg/nexus-Official/releases) or [nexus/download](https://github.com/ravipacharpro-jpg/nexus-Official/releases).
+NEXUS is also available as a desktop application. Download directly from the [official GitHub Releases page](https://github.com/ravipacharpro-jpg/nexus-Official/releases).
 
 | Platform              | Download                           |
 | --------------------- | ---------------------------------- |
@@ -103,8 +103,8 @@ The install script respects the following priority order for the installation pa
 
 ```bash
 # Examples
-NEXUS_INSTALL_DIR=/usr/local/bin curl -fsSL https://github.com/ravipacharpro-jpg/nexus-Official/releases | bash
-XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://github.com/ravipacharpro-jpg/nexus-Official/releases | bash
+NEXUS_INSTALL_DIR=/usr/local/bin curl -fsSL https://raw.githubusercontent.com/ravipacharpro-jpg/nexus-Official/main/install.sh | bash
+XDG_BIN_DIR=$HOME/.local/bin curl -fsSL https://raw.githubusercontent.com/ravipacharpro-jpg/nexus-Official/main/install.sh | bash
 ```
 
 ### Agents

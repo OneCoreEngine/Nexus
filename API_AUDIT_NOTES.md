@@ -29,4 +29,4 @@ The NEXUS rebrand did break model discovery and runtime plugin bootstrap by repl
 
 
 ## Release verification
-The installer repository target was corrected to `itzgeniusboy/dev-hub`, matching the published repository and the requested curl installation URL. Release binaries were built with `NEXUS_VERSION=0.1.20`; the x64 binary passed `--version` with `0.1.20`, and the ARM64 artifact was verified as an AArch64 ELF binary. The two release archives were packaged with SHA-256 checksums recorded in the release workspace.
+The installer repository target is the official `ravipacharpro-jpg/nexus-Official` repository. Release binaries are published through this repository's GitHub Releases page, and installation scripts download from its `main` branch.
