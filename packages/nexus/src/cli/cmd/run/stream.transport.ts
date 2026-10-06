@@ -1448,7 +1448,7 @@ function createLayer(input: StreamInput) {
 // can return.
 //
 // The transport is single-turn: only one runPromptTurn() call can be active
-// at a time. The prompt queue enforces this from above.
+// at a time. The interactive loop enforces this from above.
 export async function createSessionTransport(input: StreamInput): Promise<SessionTransport> {
   const runtime = makeRuntime(Service, createLayer(input))
   await runtime.runPromise(() => Effect.void)

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { runPromptQueue } from "@/cli/cmd/run/runtime.queue"
+import { runInteractiveLoop } from "@/cli/cmd/run/runtime.loop"
 import type { FooterApi, FooterEvent, RunPrompt, StreamCommit } from "@/cli/cmd/run/types"
 
 function footer() {
@@ -67,8 +67,8 @@ function footer() {
     api,
     events,
     commits,
-    submit(text: string, mode?: RunPrompt["mode"]) {
-      const next = mode ? { text, parts: [] as RunPrompt["parts"], mode } : { text, parts: [] as RunPrompt["parts"] }
+    submit(text: string, mode?: RunPrompt["mode"], parts: RunPrompt["parts"] = []) {
+      const next = mode ? { text, parts, mode } : { text, parts }
       for (const fn of [...prompts]) {
         fn(next)
       }
@@ -79,12 +79,12 @@ function footer() {
   }
 }
 
-describe("run runtime queue", () => {
+describe("run runtime interactive loop", () => {
   test("ignores empty prompts", async () => {
     const ui = footer()
     let calls = 0
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async () => {
         calls += 1
@@ -102,7 +102,7 @@ describe("run runtime queue", () => {
     const ui = footer()
     let calls = 0
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async () => {
         calls += 1
@@ -120,7 +120,7 @@ describe("run runtime queue", () => {
     const seen: string[] = []
     let created = 0
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       onNewSession: async () => {
         created += 1
@@ -158,7 +158,7 @@ describe("run runtime queue", () => {
     const ui = footer()
     const seen: RunPrompt[] = []
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async (input) => {
         seen.push(input)
@@ -185,7 +185,7 @@ describe("run runtime queue", () => {
     const seen: RunPrompt[] = []
     let created = 0
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       onNewSession: async () => {
         created += 1
@@ -214,7 +214,7 @@ describe("run runtime queue", () => {
   test("shell mode does not append a synthetic user row", async () => {
     const ui = footer()
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async () => {
         expect(ui.commits).toEqual([
@@ -236,7 +236,7 @@ describe("run runtime queue", () => {
   test("shell mode does not emit a turn duration summary", async () => {
     const ui = footer()
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async () => {
         ui.api.close()
@@ -253,7 +253,7 @@ describe("run runtime queue", () => {
     const ui = footer()
     const seen: string[] = []
 
-    await runPromptQueue({
+    await runInteractiveLoop({
       footer: ui.api,
       initialInput: "  hello  ",
       run: async (input) => {
@@ -284,7 +284,7 @@ describe("run runtime queue", () => {
     const ui = footer()
     const seen: string[] = []
 
-    await runPromptQueue({
+    await runInteractiveLoop({
       footer: ui.api,
       initialInput: "  hello  ",
       onSend: (input) => {
@@ -301,7 +301,7 @@ describe("run runtime queue", () => {
   test("appends the user row before the turn starts", async () => {
     const ui = footer()
 
-    await runPromptQueue({
+    await runInteractiveLoop({
       footer: ui.api,
       initialInput: "/fmt bash",
       run: async () => {
@@ -325,137 +325,114 @@ describe("run runtime queue", () => {
     })
   })
 
-  test("runs queued prompts in order", async () => {
+  test("answers live status questions immediately without interrupting the active turn", async () => {
     const ui = footer()
     const seen: string[] = []
-    let wake: (() => void) | undefined
-    const gate = new Promise<void>((resolve) => {
-      wake = resolve
-    })
+    let activeSignal: AbortSignal | undefined
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
-      run: async (input) => {
+      getLiveStatus: () => "running tool: tests",
+      run: async (input, signal) => {
         seen.push(input.text)
-        if (seen.length === 1) {
-          await gate
-          return
-        }
-
-        ui.api.close()
+        activeSignal = signal
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true })
+        })
       },
     })
 
-    ui.submit("one")
-    ui.submit("two")
-    await Promise.resolve()
-    expect(seen).toEqual(["one"])
-    expect(ui.commits.map((item) => item.text)).toEqual([
-      "Got it — queued; current task continues…",
-      "one",
-      "Got it — working on it…",
-    ])
-
-    wake?.()
-    await task
-
-    expect(seen).toEqual(["one", "two"])
-  })
-
-  test("exposes ordinary in-flight prompts for removal before sending", async () => {
-    const ui = footer()
-    const turns: RunPrompt[] = []
-    let wake: (() => void) | undefined
-    const gate = new Promise<void>((resolve) => {
-      wake = resolve
-    })
-
-    const task = runPromptQueue({
-      footer: ui.api,
-      run: async (input) => {
-        turns.push(input)
-        await gate
-      },
-    })
-
-    ui.submit("one")
-    ui.submit("two")
+    ui.submit("Build the feature")
     await Promise.resolve()
     await Promise.resolve()
+    expect(seen).toEqual(["Build the feature"])
 
-    expect(turns.map((item) => item.text)).toEqual(["one"])
-    expect(turns[0]?.messageID).toEqual(expect.any(String))
-    expect(ui.commits.map((item) => item.text)).toEqual([
-      "Got it — queued; current task continues…",
-      "one",
-      "Got it — working on it…",
-    ])
-    const first = ui.events.find((item) => item.type === "queued.prompts")
-    const event = ui.events.findLast((item) => item.type === "queued.prompts")
-    expect(first?.type === "queued.prompts" ? first.prompts : []).toEqual([])
-    expect(
-      first?.type === "queued.prompts" && event?.type === "queued.prompts" ? first.prompts === event.prompts : true,
-    ).toBe(false)
-    expect(ui.events.findLast((item) => item.type === "queue")).toEqual({ type: "queue", queue: 1 })
-    expect(event?.type === "queued.prompts" ? event.prompts.map((item) => item.prompt.text) : []).toEqual(["two"])
-    if (event?.type === "queued.prompts") ui.removeQueued(event.prompts[0]!.messageID)
-    await Promise.resolve()
+    ui.submit("what is the status?")
 
-    wake?.()
+    expect(activeSignal?.aborted).toBe(false)
+    expect(seen).toEqual(["Build the feature"])
+    expect(ui.commits.at(-1)?.text).toBe(
+      "Live status: running tool: tests. Active task: Build the feature. This status reply did not interrupt the task.",
+    )
+
     ui.api.close()
     await task
-    expect(turns.map((item) => item.text)).toEqual(["one"])
   })
 
-  test("removing one managed queued prompt preserves the others", async () => {
-    const ui = footer()
-    const turns: string[] = []
-    let wake: (() => void) | undefined
-    const gate = new Promise<void>((resolve) => {
-      wake = resolve
-    })
-
-    const task = runPromptQueue({
-      footer: ui.api,
-      run: async (input) => {
-        turns.push(input.text)
-        if (input.text === "active") await gate
-        if (input.text === "queued three") ui.api.close()
-      },
-    })
-
-    ui.submit("active")
-    ui.submit("queued one")
-    ui.submit("queued two")
-    ui.submit("queued three")
-    await Promise.resolve()
-    await Promise.resolve()
-
-    const event = ui.events.findLast((item) => item.type === "queued.prompts")
-    if (event?.type === "queued.prompts") {
-      const second = event.prompts.find((item) => item.prompt.text === "queued two")
-      if (second) ui.removeQueued(second.messageID)
-    }
-
-    wake?.()
-    await task
-    expect(turns).toEqual(["active", "queued one", "queued three"])
-  })
-
-  test("drains a prompt queued during an in-flight turn", async () => {
+  test("answers /status locally when no task is running", async () => {
     const ui = footer()
     const seen: string[] = []
-    let wake: (() => void) | undefined
-    const gate = new Promise<void>((resolve) => {
-      wake = resolve
-    })
-
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async (input) => {
         seen.push(input.text)
+      },
+    })
+
+    ui.submit("/status")
+    expect(ui.commits.at(-1)?.text).toBe("Live status: idle. No task is currently running.")
+    expect(seen).toEqual([])
+
+    ui.api.close()
+    await task
+  })
+
+  test("interrupts an active turn for live steering without overlapping task writers", async () => {
+    const ui = footer()
+    const seen: string[] = []
+    let activeSignal: AbortSignal | undefined
+    let running = 0
+    let maximum = 0
+
+    const task = runInteractiveLoop({
+      footer: ui.api,
+      run: async (input, signal) => {
+        seen.push(input.text)
+        running += 1
+        maximum = Math.max(maximum, running)
+        try {
+          if (seen.length === 1) {
+            activeSignal = signal
+            await new Promise<void>((resolve) => {
+              signal.addEventListener("abort", () => resolve(), { once: true })
+            })
+          } else {
+            ui.api.close()
+          }
+        } finally {
+          running -= 1
+        }
+      },
+    })
+
+    ui.submit("Implement the first approach")
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(seen).toEqual(["Implement the first approach"])
+
+    ui.submit("Change direction and use a smaller patch")
+    expect(activeSignal?.aborted).toBe(true)
+    expect(ui.commits.some((item) => item.text.startsWith("Live steering received."))).toBe(true)
+
+    await task
+    expect(seen).toEqual(["Implement the first approach", "Change direction and use a smaller patch"])
+    expect(maximum).toBe(1)
+  })
+
+  test("coalesces rapid steering inputs into one handoff rather than retaining a FIFO", async () => {
+    const ui = footer()
+    const seen: string[] = []
+    const seenParts: RunPrompt["parts"][] = []
+
+    const task = runInteractiveLoop({
+      footer: ui.api,
+      run: async (input, signal) => {
+        seen.push(input.text)
+        seenParts.push(input.parts)
         if (seen.length === 1) {
-          await gate
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true })
+          })
           return
         }
 
@@ -463,24 +440,37 @@ describe("run runtime queue", () => {
       },
     })
 
-    ui.submit("one")
+    ui.submit("Long-running task")
     await Promise.resolve()
-    expect(seen).toEqual(["one"])
+    await Promise.resolve()
+    ui.submit("Use @tester", undefined, [
+      { type: "agent", name: "tester", source: { start: 4, end: 11, value: "@tester" } },
+    ])
+    ui.submit("Also @coder", undefined, [
+      { type: "agent", name: "coder", source: { start: 5, end: 11, value: "@coder" } },
+    ])
+    ui.submit("Also keep the test small")
 
-    wake?.()
-    await Promise.resolve()
-    ui.submit("two")
     await task
-
-    expect(seen).toEqual(["one", "two"])
+    expect(seen).toEqual([
+      "Long-running task",
+      "Use @tester\n\nAdditional live instruction:\nAlso @coder\n\nAdditional live instruction:\nAlso keep the test small",
+    ])
+    const agents = seenParts[1]?.filter((part) => part.type === "agent")
+    const offset = Bun.stringWidth("Use @tester\n\nAdditional live instruction:\n")
+    expect(agents?.map((part) => (part.type === "agent" ? [part.source?.start, part.source?.end] : []))).toEqual([
+      [4, 11],
+      [offset + 5, offset + 11],
+    ])
+    expect(ui.commits.filter((item) => item.text.startsWith("Live steering received.")).length).toBe(3)
   })
 
-  test("close aborts the active run and drops pending queued work", async () => {
+  test("close aborts the active run and drops the pending steering handoff", async () => {
     const ui = footer()
     const seen: string[] = []
     let hit = false
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async (input, signal) => {
         seen.push(input.text)
@@ -516,7 +506,7 @@ describe("run runtime queue", () => {
   test("propagates run errors", async () => {
     const ui = footer()
 
-    const task = runPromptQueue({
+    const task = runInteractiveLoop({
       footer: ui.api,
       run: async () => {
         throw new Error("boom")
