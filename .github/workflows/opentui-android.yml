@@ -62,8 +62,13 @@ jobs:
         working-directory: opentui/packages/core/src/zig
         run: |
           zig env >/dev/null
-          zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseFast --prefix ./out
-          LIB="$(find ../lib/aarch64-linux-musl -name 'libopentui.so' -print -quit)"
+          zig build install -Dtarget=aarch64-linux-musl -Doptimize=ReleaseFast --prefix ./out
+          LIB="$(find "$GITHUB_WORKSPACE/opentui" -type f -name 'libopentui.so' -print -quit)"
+          if [ -z "$LIB" ]; then
+            echo "No libopentui.so found; listing shared libraries:" >&2
+            find "$GITHUB_WORKSPACE/opentui" -type f \( -name '*.so' -o -name '*.a' \) -print | head -50
+            exit 1
+          fi
           echo "Built: ${LIB}"
           test -n "${LIB}"
           echo "LIB_PATH=${LIB}" >> "$GITHUB_ENV"
