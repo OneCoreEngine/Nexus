@@ -420,6 +420,7 @@ function sdk(
     subscribe?: NexusClient["event"]["subscribe"]
     globalEvent?: NexusClient["global"]["event"]
     promptAsync?: NexusClient["session"]["promptAsync"]
+    abort?: NexusClient["session"]["abort"]
     status?: NexusClient["session"]["status"]
     messages?: NexusClient["session"]["messages"]
     children?: NexusClient["session"]["children"]
@@ -433,6 +434,7 @@ function sdk(
   const globalEvent: NexusClient["global"]["event"] =
     input.globalEvent ?? (() => globalSse(input.globalStream ?? wrapGlobalStream(input.stream ?? emptyStream())))
   const promptAsync: NexusClient["session"]["promptAsync"] = input.promptAsync ?? (() => ok(undefined))
+  const abort: NexusClient["session"]["abort"] = input.abort ?? (() => ok(true))
   const status: NexusClient["session"]["status"] = input.status ?? (() => ok({}))
   const messages: NexusClient["session"]["messages"] = input.messages ?? (() => ok([]))
   const children: NexusClient["session"]["children"] = input.children ?? (() => ok([]))
@@ -442,6 +444,7 @@ function sdk(
   spyOn(client.event, "subscribe").mockImplementation(subscribe)
   spyOn(client.global, "event").mockImplementation(globalEvent)
   spyOn(client.session, "promptAsync").mockImplementation(promptAsync)
+  spyOn(client.session, "abort").mockImplementation(abort)
   spyOn(client.session, "status").mockImplementation(status)
   spyOn(client.session, "messages").mockImplementation(messages)
   spyOn(client.session, "children").mockImplementation(children)
@@ -2170,6 +2173,136 @@ describe("run stream transport", () => {
           interrupted: true,
         },
       ])
+    } finally {
+      src.close()
+      await transport.close()
+    }
+  })
+
+  test("waits for server-side session abort before releasing an interrupted turn", async () => {
+    const src = eventFeed()
+    const ui = footer()
+    const started = defer()
+    const abortStarted = defer()
+    const finishAbort = defer()
+    const transport = await createSessionTransport({
+      sdk: sdk({
+        stream: src.stream,
+        promptAsync: async () => {
+          started.resolve()
+          queueMicrotask(() => {
+            src.push(busy())
+            src.push(assistant("msg-1"))
+          })
+          return ok(undefined)
+        },
+        abort: async ({ sessionID }) => {
+          expect(sessionID).toBe("session-1")
+          abortStarted.resolve()
+          await finishAbort.promise
+          return ok(true)
+        },
+      }),
+      sessionID: "session-1",
+      thinking: true,
+      limits: () => ({}),
+      footer: ui.api,
+    })
+
+    const ctrl = new AbortController()
+    let settled = false
+
+    try {
+      const task = transport
+        .runPromptTurn({
+          agent: undefined,
+          model: undefined,
+          variant: undefined,
+          prompt: { text: "hello", parts: [] },
+          files: [],
+          includeFiles: false,
+          signal: ctrl.signal,
+        })
+        .then(() => {
+          settled = true
+        })
+
+      await started.promise
+      ctrl.abort()
+      await abortStarted.promise
+      await Bun.sleep(20)
+
+      expect(settled).toBe(false)
+
+      finishAbort.resolve()
+      await task
+
+      expect(settled).toBe(true)
+    } finally {
+      src.close()
+      await transport.close()
+    }
+  })
+
+  test("waits for natural idle if server-side session abort fails", async () => {
+    const src = eventFeed()
+    const ui = footer()
+    const started = defer()
+    let isBusy = true
+    const transport = await createSessionTransport({
+      sdk: sdk({
+        stream: src.stream,
+        status: async () => ok(statusMap(isBusy)),
+        promptAsync: async () => {
+          started.resolve()
+          queueMicrotask(() => {
+            src.push(busy())
+            src.push(assistant("msg-1"))
+          })
+          return ok(undefined)
+        },
+        abort: async () => {
+          throw new Error("cancel unavailable")
+        },
+      }),
+      sessionID: "session-1",
+      thinking: true,
+      limits: () => ({}),
+      footer: ui.api,
+    })
+
+    const ctrl = new AbortController()
+    let settled = false
+
+    try {
+      const task = transport
+        .runPromptTurn({
+          agent: undefined,
+          model: undefined,
+          variant: undefined,
+          prompt: { text: "hello", parts: [] },
+          files: [],
+          includeFiles: false,
+          signal: ctrl.signal,
+        })
+        .then(() => {
+          settled = true
+        })
+
+      await started.promise
+      ctrl.abort()
+      await waitFor(() =>
+        ui.commits.find((commit) => commit.kind === "system" && commit.text.includes("could not be stopped yet")),
+      )
+      await Bun.sleep(20)
+
+      expect(settled).toBe(false)
+
+      isBusy = false
+      src.push(idle())
+      await task
+
+      expect(settled).toBe(true)
     } finally {
       src.close()
       await transport.close()
