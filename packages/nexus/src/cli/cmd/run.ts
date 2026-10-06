@@ -278,32 +278,35 @@ export const RunCommand = effectCmd({
       const { RuntimeFlags } = yield* Effect.promise(() => import("@/effect/runtime-flags"))
       const { InstanceRef } = yield* Effect.promise(() => import("@/effect/instance-ref"))
       const { ServerAuth } = yield* Effect.promise(() => import("@/server/auth"))
-      const { Config } = yield* Effect.promise(() => import("@/config/config"))
       const agentSvc = yield* Agent.Service
       const flags = yield* RuntimeFlags.Service
-      const localInstance = yield* InstanceRef
-      const configService = yield* Config.Service
-      const config = yield* configService.get()
+      const localInstance = args.attach ? undefined : yield* InstanceRef
 
-      // Lazy load Tier 1 experimental features if enabled
-      if (config.experimental?.semanticSearch) {
-        const { VectorSearch } = yield* Effect.promise(() => import("@nexus/vector-search"))
-        yield* Effect.sync(() => VectorSearch.initializeNow())
-      }
-      if (config.experimental?.gitPro) {
-        const { GitPro } = yield* Effect.promise(() => import("@nexus/git-pro"))
-        yield* Effect.sync(() => GitPro.initializeNow())
-      }
-      if (config.experimental?.testRunner) {
-        const { TestRunner } = yield* Effect.promise(() => import("@nexus/test-runner"))
-        yield* Effect.sync(() => TestRunner.initializeNow())
-      }
-      if (config.experimental?.termuxAPI) {
-        const { TermuxAPI } = yield* Effect.promise(() => import("@nexus/termux-api"))
-        yield* Effect.try({
-          try: () => TermuxAPI.initializeNow(),
-          catch: (error) => new CliError({ message: String(error) }),
-        })
+      if (!args.attach) {
+        const { Config } = yield* Effect.promise(() => import("@/config/config"))
+        const configService = yield* Config.Service
+        const config = yield* configService.get()
+
+        // Lazy load Tier 1 experimental features if enabled
+        if (config.experimental?.semanticSearch) {
+          const { VectorSearch } = yield* Effect.promise(() => import("@nexus/vector-search"))
+          yield* Effect.sync(() => VectorSearch.initializeNow())
+        }
+        if (config.experimental?.gitPro) {
+          const { GitPro } = yield* Effect.promise(() => import("@nexus/git-pro"))
+          yield* Effect.sync(() => GitPro.initializeNow())
+        }
+        if (config.experimental?.testRunner) {
+          const { TestRunner } = yield* Effect.promise(() => import("@nexus/test-runner"))
+          yield* Effect.sync(() => TestRunner.initializeNow())
+        }
+        if (config.experimental?.termuxAPI) {
+          const { TermuxAPI } = yield* Effect.promise(() => import("@nexus/termux-api"))
+          yield* Effect.try({
+            try: () => TermuxAPI.initializeNow(),
+            catch: (error) => new CliError({ message: String(error) }),
+          })
+        }
       }
       yield* Effect.promise(async () => {
         const rawMessage = [...args.message, ...(args["--"] || [])].join(" ")
@@ -631,6 +634,7 @@ export const RunCommand = effectCmd({
 
         async function localAgent() {
           if (!args.agent) return undefined
+          if (!localInstance) throw new Error("Local agent lookup requires an instance context")
           const name = args.agent
 
           const entry = await Effect.runPromise(
