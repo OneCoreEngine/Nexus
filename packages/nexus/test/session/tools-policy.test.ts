@@ -4,13 +4,22 @@ import { applyPolicy, type Policy } from "../../src/session/tools"
 
 const args = { path: "/tmp/file.txt" }
 
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 function run(policy: Policy, ask?: () => Effect.Effect<void, unknown>) {
   let asked = 0
   const effect = applyPolicy(policy, () => {
     asked++
     return ask?.() ?? Effect.void
   })
-  return Effect.runPromise(Effect.zip(effect, Effect.sync(() => asked)))
+  return Effect.runPromise(
+    Effect.zip(
+      effect,
+      Effect.sync(() => asked),
+    ),
+  )
 }
 
 describe("tool.policy outcomes", () => {
@@ -25,14 +34,12 @@ describe("tool.policy outcomes", () => {
     const error = await Effect.runPromise(
       applyPolicy({ decision: "deny", reason: "read-only mode", args }, () => Effect.void).pipe(Effect.flip),
     )
-    expect(error.message).toContain("read-only mode")
+    expect(errorMessage(error)).toContain("read-only mode")
   })
 
   test("deny without reason fails with a default message", async () => {
-    const error = await Effect.runPromise(
-      applyPolicy({ decision: "deny", args }, () => Effect.void).pipe(Effect.flip),
-    )
-    expect(error.message).toContain("blocked by policy")
+    const error = await Effect.runPromise(applyPolicy({ decision: "deny", args }, () => Effect.void).pipe(Effect.flip))
+    expect(errorMessage(error)).toContain("blocked by policy")
   })
 
   test("ask prompts once then proceeds", async () => {

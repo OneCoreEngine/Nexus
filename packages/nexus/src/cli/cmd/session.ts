@@ -1,7 +1,7 @@
 import type { Argv } from "yargs"
 import { Effect } from "effect"
 import { cmd } from "./cmd"
-import { effectCmd, fail } from "../effect-cmd"
+import { CliError, effectCmd, fail } from "../effect-cmd"
 import { Session } from "@/session/session"
 import { SessionID } from "../../session/schema"
 import { UI } from "../ui"
@@ -79,7 +79,12 @@ export const SessionInjectCommand = effectCmd({
   handler: Effect.fn("Cli.session.inject")(function* (args) {
     const { inject } = yield* Effect.promise(() => import("@/inbox"))
     const result = yield* inject({ sessionID: args.sessionID, text: args.text, agent: args.agent }).pipe(
-      Effect.catchIf(NotFoundError.isInstance, () => fail(`Session not found: ${args.sessionID}`)),
+      Effect.mapError(
+        (error) =>
+          new CliError({
+            message: NotFoundError.isInstance(error) ? `Session not found: ${args.sessionID}` : String(error),
+          }),
+      ),
     )
     UI.println(
       UI.Style.TEXT_SUCCESS_BOLD + `Injected into ${args.sessionID} as ${result.messageID}` + UI.Style.TEXT_NORMAL,

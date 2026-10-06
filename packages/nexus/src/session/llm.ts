@@ -4,7 +4,7 @@ import { PermissionV1 } from "@nexus-ai/core/v1/permission"
 import { Provider } from "@/provider/provider"
 import { SessionV1 } from "@nexus-ai/core/v1/session"
 import { serviceUse } from "@nexus-ai/core/effect/service-use"
-import { Context, Effect, Layer, Exit, Cause } from "effect"
+import { Context, Effect, Layer, Exit } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool } from "ai"
 import type { LLMEvent } from "@nexus-ai/llm"
@@ -41,6 +41,8 @@ import {
 } from "./llm/budget"
 import { classifyTaskRequirements, supportsTaskRequirements, taskTextFromMessages } from "./llm/capability"
 import { rankCandidatesAfterPrimary } from "./llm/fallback-order"
+import { ProviderV2 } from "@nexus-ai/core/provider"
+import { ModelV2 } from "@nexus-ai/core/model"
 
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
 
@@ -419,28 +421,31 @@ const live: Layer.Layer<
             // Promote the route that most recently succeeded in this process so
             // later turns stop re-burning through known-bad fallbacks. Candidate
             // zero (manual/current choice) always stays first.
+            const previousRoute = lastGoodRoute
             const promoted =
-              lastGoodRoute &&
+              previousRoute &&
               !ranked.some(
                 (candidate) =>
-                  candidate.providerID === lastGoodRoute.providerID && candidate.modelID === lastGoodRoute.modelID,
+                  candidate.providerID === previousRoute.providerID && candidate.modelID === previousRoute.modelID,
               )
                 ? [
                     {
-                      providerID: lastGoodRoute.providerID as ProviderV2.ID,
-                      modelID: lastGoodRoute.modelID as ModelV2.ID,
+                      providerID: previousRoute.providerID as ProviderV2.ID,
+                      modelID: previousRoute.modelID as ModelV2.ID,
                     },
                   ]
                 : []
             const candidates = [
               ranked[0],
               ...promoted,
-              ...ranked.slice(1).filter(
-                (candidate) =>
-                  !promoted.some(
-                    (entry) => entry.providerID === candidate.providerID && entry.modelID === candidate.modelID,
-                  ),
-              ),
+              ...ranked
+                .slice(1)
+                .filter(
+                  (candidate) =>
+                    !promoted.some(
+                      (entry) => entry.providerID === candidate.providerID && entry.modelID === candidate.modelID,
+                    ),
+                ),
             ]
             const taskUsage = emptyTaskUsage()
             const taskRequirements = classifyTaskRequirements(taskTextFromMessages(input.messages))
@@ -470,12 +475,12 @@ const live: Layer.Layer<
             const attempt = (
               remaining: ReadonlyArray<{ providerID: ProviderV2.ID; modelID: ModelV2.ID }>,
               retryCount = 0,
-            ): Effect.Effect<Stream.Stream<LLMEvent, unknown>> =>
+            ): Effect.Effect<Stream.Stream<LLMEvent, unknown>, unknown> =>
               Effect.gen(function* () {
                 const [candidate, ...rest] = remaining
-                if (!candidate) return yield* Effect.dieMessage("No fallback model is available")
+                if (!candidate) return yield* Effect.die(new Error("No fallback model is available"))
                 const cap = checkTaskUsageBudget(candidate.providerID, taskUsage)
-                if (!cap.allowed) return yield* Effect.dieMessage(localBudgetFailure(cap.reason))
+                if (!cap.allowed) return yield* Effect.die(new Error(localBudgetFailure(cap.reason)))
 
                 // Retry the same provider only while its active key rotation has
                 // untried keys. This prevents cycling back to key 1 before switching.

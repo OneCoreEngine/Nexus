@@ -46,37 +46,30 @@ export type MasterTaskStatus =
   | "failed"
   | "cancelled"
 
-export type WorkerKind =
-  | "research"
-  | "coder"
-  | "reviewer"
-  | "tester"
-  | "git"
-  | "browser"
-  | "web"
-  | "android"
-  | "docs"
+export type WorkerKind = "research" | "coder" | "reviewer" | "tester" | "git" | "browser" | "web" | "android" | "docs"
 ```
 
 A worker receives a bounded objective, workspace path, allowed tools, device profile, route requirements, parent task ID, and prior step outputs. It returns a typed result containing status, summary, changed files, verification evidence, next suggestions, and no secrets.
 
-## Non-blocking conversation behavior
+## Live communication with serial task execution
 
-The prompt queue acknowledges ordinary user input immediately with a short status such as `Got it — working on it…`, while the Master Agent continues its active run. New instructions are queued and surfaced in the TUI. The coordinator may merge, prioritize, or defer queued instructions only at safe step boundaries. Destructive actions, external messages, account changes, payment, publishing, and Git push remain approval-gated.
+Communication is handled separately from the active task turn. A status request (for example, `/status` or “what is the status?”) is answered immediately from the current footer/task snapshot and does not interrupt the run. Any other prompt is acknowledged as live steering: the current model turn is asked to stop, the runner waits for it to settle, then applies the new instruction. Rapid inputs during that handoff are coalesced into one steering instruction rather than retained in a FIFO prompt queue.
+
+The single-writer rule remains: two turns for the same session never execute concurrently. This protects tool/session state, but a steering instruction’s agent-generated response starts only after the active turn has settled; only status replies and the steering acknowledgement are immediate. Detached background workers remain independent and must not be started again solely because the foreground turn was interrupted. Destructive actions, external messages, account changes, payment, publishing, and Git push remain approval-gated.
 
 ## Worker responsibilities
 
-| Worker | Responsibilities | Default tools |
-|---|---|---|
-| Research | Read project docs, inspect APIs, compare alternatives, summarize evidence | read, search, webfetch |
-| Coder | Edit source, add tests, apply patches, preserve formatting | read, write, edit, grep, shell |
-| Reviewer | Inspect diffs, security, architecture, regressions, and secret exposure | read, grep, git diff |
-| Tester | Run focused tests, builds, lint, typecheck, and reproduce failures | shell, read, test runner |
-| Git | Branch, status, diff, commit, fetch, and prepare push/PR | git, shell |
-| Browser | Navigate, inspect, click, type, download/upload, and verify browser workflows | browser session, screenshot |
-| Web | Start web apps, health-check endpoints, inspect logs, and run UI/API tests | shell, browser |
-| Android | Detect Gradle/SDK projects, build APKs, run unit/instrumentation checks, inspect artifacts | shell, adb/emulator when available |
-| Docs | Update setup, provider, safety, troubleshooting, and release documentation | read, write, edit |
+| Worker   | Responsibilities                                                                           | Default tools                      |
+| -------- | ------------------------------------------------------------------------------------------ | ---------------------------------- |
+| Research | Read project docs, inspect APIs, compare alternatives, summarize evidence                  | read, search, webfetch             |
+| Coder    | Edit source, add tests, apply patches, preserve formatting                                 | read, write, edit, grep, shell     |
+| Reviewer | Inspect diffs, security, architecture, regressions, and secret exposure                    | read, grep, git diff               |
+| Tester   | Run focused tests, builds, lint, typecheck, and reproduce failures                         | shell, read, test runner           |
+| Git      | Branch, status, diff, commit, fetch, and prepare push/PR                                   | git, shell                         |
+| Browser  | Navigate, inspect, click, type, download/upload, and verify browser workflows              | browser session, screenshot        |
+| Web      | Start web apps, health-check endpoints, inspect logs, and run UI/API tests                 | shell, browser                     |
+| Android  | Detect Gradle/SDK projects, build APKs, run unit/instrumentation checks, inspect artifacts | shell, adb/emulator when available |
+| Docs     | Update setup, provider, safety, troubleshooting, and release documentation                 | read, write, edit                  |
 
 ## Route selection
 

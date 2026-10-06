@@ -84,6 +84,7 @@ type Wait = {
   tick: number
   armed: boolean
   live: boolean
+  cancel?: () => void
   onVisibleOutput?: (anchor: LocalReplayAnchor) => void
   done: Deferred.Deferred<void, unknown>
 }
@@ -831,6 +832,7 @@ function createLayer(input: StreamInput) {
           }
 
           next.live = true
+          next.cancel?.()
         }
 
         const complete = Effect.fn("RunStreamTransport.complete")(function* (next: Wait, fallback: boolean) {
@@ -1210,11 +1212,50 @@ function createLayer(input: StreamInput) {
           state.data.announced = false
 
           const turn = new AbortController()
+          let cancelRequested = false
+          let cancelRequest: Promise<void> | undefined
+          const cancelSession = () => {
+            if (!cancelRequested || cancelRequest || input.footer.isClosed || (!item.armed && !item.live)) {
+              return
+            }
+
+            cancelRequest = input.sdk.session
+              .abort({ sessionID: input.sessionID })
+              .then((result) => {
+                if (result.error) throw result.error
+                input.trace?.write("send.abort.ok", { sessionID: input.sessionID })
+                turn.abort()
+              })
+              .catch((error) => {
+                input.trace?.write("send.abort.error", {
+                  sessionID: input.sessionID,
+                  error: formatUnknownError(error),
+                })
+                if (!input.footer.isClosed) {
+                  input.footer.append({
+                    kind: "system",
+                    text: "The active task could not be stopped yet; the steering instruction will take over after it finishes.",
+                    phase: "progress",
+                    source: "system",
+                  })
+                }
+              })
+          }
+          item.cancel = cancelSession
           const stop = () => {
+            if (input.footer.isClosed) {
+              turn.abort()
+              return
+            }
+
+            cancelRequested = true
+            cancelSession()
+          }
+          const forceStop = () => {
             turn.abort()
           }
           next.signal?.addEventListener("abort", stop, { once: true })
-          abort.signal.addEventListener("abort", stop, { once: true })
+          abort.signal.addEventListener("abort", forceStop, { once: true })
           yield* poll(item, turn.signal).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.asVoid)
 
           const req = {
@@ -1263,6 +1304,7 @@ function createLayer(input: StreamInput) {
                             })
                             item.armed = true
                             item.live = true
+                            item.cancel?.()
                           }),
                         ),
                         Effect.flatMap(() => Deferred.succeed(item.done, undefined).pipe(Effect.ignore)),
@@ -1305,6 +1347,7 @@ function createLayer(input: StreamInput) {
                             })
                             item.armed = true
                             item.live = true
+                            item.cancel?.()
                           }),
                         ),
                         Effect.flatMap(() => Deferred.succeed(item.done, undefined).pipe(Effect.ignore)),
@@ -1330,13 +1373,14 @@ function createLayer(input: StreamInput) {
                           sessionID: input.sessionID,
                         })
                         item.armed = true
+                        item.cancel?.()
                       }),
                     ),
                   )
 
           yield* send.pipe(
             Effect.flatMap(() => {
-              if (turn.signal.aborted || next.signal?.aborted || input.footer.isClosed || closed) {
+              if (turn.signal.aborted || input.footer.isClosed || closed) {
                 if (state.wait === item) {
                   state.wait = undefined
                 }
@@ -1402,10 +1446,14 @@ function createLayer(input: StreamInput) {
                   sessionID: input.sessionID,
                 })
                 next.signal?.removeEventListener("abort", stop)
-                abort.signal.removeEventListener("abort", stop)
+                abort.signal.removeEventListener("abort", forceStop)
+                item.cancel = undefined
               }),
             ),
           )
+          if (cancelRequest) {
+            yield* Effect.promise(() => cancelRequest!)
+          }
           return
         })
 
@@ -1448,7 +1496,7 @@ function createLayer(input: StreamInput) {
 // can return.
 //
 // The transport is single-turn: only one runPromptTurn() call can be active
-// at a time. The prompt queue enforces this from above.
+// at a time. The interactive loop enforces this from above.
 export async function createSessionTransport(input: StreamInput): Promise<SessionTransport> {
   const runtime = makeRuntime(Service, createLayer(input))
   await runtime.runPromise(() => Effect.void)

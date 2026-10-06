@@ -45,36 +45,55 @@ export namespace ProviderTest {
   }
 
   export function fake(override: Partial<Provider.Interface> & { model?: Provider.Model; info?: Provider.Info } = {}) {
-    const mdl = override.model ?? model()
-    const row = override.info ?? info({}, mdl)
+    const {
+      model: overrideModel,
+      info: overrideInfo,
+      fallbackModels: overrideFallbackModels,
+      ...serviceOverride
+    } = override
+    const mdl = overrideModel ?? model()
+    const row = overrideInfo ?? info({}, mdl)
     return {
       model: mdl,
       info: row,
       layer: Layer.succeed(
         Provider.Service,
         Provider.Service.of({
-          list: Effect.fn("TestProvider.list")(() => Effect.succeed({ [row.id]: row })),
-          getProvider: Effect.fn("TestProvider.getProvider")((providerID) => {
-            if (providerID === row.id) return Effect.succeed(row)
-            return Effect.die(new Error(`Unknown test provider: ${providerID}`))
-          }),
-          getModel: Effect.fn("TestProvider.getModel")((providerID, modelID) => {
-            if (providerID === row.id && modelID === mdl.id) return Effect.succeed(mdl)
-            return Effect.die(new Error(`Unknown test model: ${providerID}/${modelID}`))
-          }),
-          getLanguage: Effect.fn("TestProvider.getLanguage")(() =>
-            Effect.die(new Error("ProviderTest.getLanguage not configured")),
-          ),
-          closest: Effect.fn("TestProvider.closest")((providerID) =>
-            Effect.succeed(providerID === row.id ? { providerID: row.id, modelID: mdl.id } : undefined),
-          ),
-          getSmallModel: Effect.fn("TestProvider.getSmallModel")((providerID) =>
-            Effect.succeed(providerID === row.id ? mdl : undefined),
-          ),
-          defaultModel: Effect.fn("TestProvider.defaultModel")(() =>
-            Effect.succeed({ providerID: row.id, modelID: mdl.id }),
-          ),
-          ...override,
+          list: serviceOverride.list ?? Effect.fn("TestProvider.list")(() => Effect.succeed({ [row.id]: row })),
+          getProvider:
+            serviceOverride.getProvider ??
+            Effect.fn("TestProvider.getProvider")((providerID) => {
+              if (providerID === row.id) return Effect.succeed(row)
+              return Effect.die(new Error(`Unknown test provider: ${providerID}`))
+            }),
+          getModel:
+            serviceOverride.getModel ??
+            Effect.fn("TestProvider.getModel")((providerID, modelID) => {
+              if (providerID === row.id && modelID === mdl.id) return Effect.succeed(mdl)
+              return Effect.die(new Error(`Unknown test model: ${providerID}/${modelID}`))
+            }),
+          getLanguage:
+            serviceOverride.getLanguage ??
+            Effect.fn("TestProvider.getLanguage")(() =>
+              Effect.die(new Error("ProviderTest.getLanguage not configured")),
+            ),
+          closest:
+            serviceOverride.closest ??
+            Effect.fn("TestProvider.closest")((providerID) =>
+              Effect.succeed(providerID === row.id ? { providerID: row.id, modelID: mdl.id } : undefined),
+            ),
+          getSmallModel:
+            serviceOverride.getSmallModel ??
+            Effect.fn("TestProvider.getSmallModel")((providerID) =>
+              Effect.succeed(providerID === row.id ? mdl : undefined),
+            ),
+          defaultModel:
+            serviceOverride.defaultModel ??
+            Effect.fn("TestProvider.defaultModel")(() => Effect.succeed({ providerID: row.id, modelID: mdl.id })),
+          fallbackModels: overrideFallbackModels ?? (() => Effect.succeed([])),
+          rotationKeyCount: serviceOverride.rotationKeyCount ?? (() => Effect.succeed(0)),
+          currentKey: serviceOverride.currentKey ?? (() => Effect.succeed(undefined)),
+          invalidateLanguage: serviceOverride.invalidateLanguage ?? (() => Effect.void),
         }),
       ),
     }

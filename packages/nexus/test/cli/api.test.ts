@@ -5,7 +5,7 @@ test("API vault list labels only NEXUS-observed usage and never claims provider 
   const output = formatApiVaultList({
     vaultPath: "/tmp/nexus/api-keys.json",
     autoRotate: true,
-    budget: { maxRequestsPerTask: 3, maxTokensPerTask: 1200, maxRequestsPerDay: 12, maxTokensPerDay: 4800 },
+    budget: { version: 1, maxRequestsPerTask: 3, maxTokensPerTask: 1200, maxRequestsPerDay: 12, maxTokensPerDay: 4800 },
     rows: [
       {
         provider: "groq",
@@ -95,15 +95,14 @@ test("API route preview keeps candidate order while revealing no key or account 
 
   expect(output).toContain("1\tgroq/deepseek-chat\tpreferred provider")
   expect(output).toContain("Local candidate; backend/runtime availability is not checked")
-  expect(output).toContain("Preview only: no provider contacted, key validated, vault changed, route selected, or task started")
+  expect(output).toContain(
+    "Preview only: no provider contacted, key validated, vault changed, route selected, or task started",
+  )
   expect(output).not.toContain("gsk_abc")
 })
 
 test("API route preview JSON is explicit that it is observation-only", () => {
-  const output = formatApiRoutePreview(
-    { model: "custom", routes: [], rows: [] },
-    "json",
-  )
+  const output = formatApiRoutePreview({ model: "custom", routes: [], rows: [] }, "json")
   expect(output).toContain('"observedOnly": true')
   expect(output).toContain("does not select a route or start a task")
 })

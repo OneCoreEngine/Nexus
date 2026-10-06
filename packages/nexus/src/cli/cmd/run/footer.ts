@@ -14,8 +14,8 @@
 //   present() swaps the active footer view and resizes the footer region.
 //
 // Lifecycle:
-//   - close() flushes pending commits and notifies listeners (the prompt
-//     queue uses this to know when to stop).
+//   - close() flushes pending commits and notifies listeners (the interactive
+//     loop uses this to know when to stop).
 //   - destroy() does the same plus tears down event listeners and clears
 //     internal state.
 //   - The renderer's DESTROY event triggers destroy() so the footer
@@ -355,6 +355,10 @@ export class RunFooter implements FooterApi {
 
   public get isClosed(): boolean {
     return this.closed || this.isGone
+  }
+
+  public getLiveStatus(): string {
+    return this.state().status
   }
 
   private get isGone(): boolean {

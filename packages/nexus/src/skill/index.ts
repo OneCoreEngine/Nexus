@@ -100,7 +100,7 @@ function parseGating(data: Record<string, unknown>): {
     const raw = data.requires
     const keys = ["bins", "anyBins", "env", "config"] as const
     if (isRecord(raw) && keys.every((key) => raw[key] === undefined || isStringArray(raw[key]))) {
-      const picked: NonNullable<Info["requires"]> = {}
+      const picked: { -readonly [K in keyof NonNullable<Info["requires"]>]?: string[] } = {}
       for (const key of keys) {
         const values = raw[key]
         if (isStringArray(values)) picked[key] = values
@@ -323,9 +323,7 @@ export interface GateContext {
 }
 
 function configTruthy(root: unknown, dotted: string): boolean {
-  const value = dotted
-    .split(".")
-    .reduce<unknown>((node, part) => (isRecord(node) ? node[part] : undefined), root)
+  const value = dotted.split(".").reduce<unknown>((node, part) => (isRecord(node) ? node[part] : undefined), root)
   return Boolean(value)
 }
 
@@ -356,9 +354,7 @@ function pathBins(): string[] {
       continue
     }
     for (const entry of entries) {
-      found.add(
-        process.platform === "win32" ? entry.toLowerCase().replace(/\.(exe|cmd|bat|com)$/, "") : entry,
-      )
+      found.add(process.platform === "win32" ? entry.toLowerCase().replace(/\.(exe|cmd|bat|com)$/, "") : entry)
     }
   }
   return [...found]

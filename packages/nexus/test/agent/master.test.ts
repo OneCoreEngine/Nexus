@@ -38,7 +38,7 @@ describe("MasterAgent", () => {
       android: true,
       androidDevice: false,
       apkBuild: true,
-      packageManagers: ["bun"],
+      packageManagers: ["bun"] as string[],
     } as const
     const registry = upsertFeature(createCapabilityRegistry(), {
       id: "browser-session",

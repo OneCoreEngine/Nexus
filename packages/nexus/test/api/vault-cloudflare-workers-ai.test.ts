@@ -20,6 +20,10 @@ const homes: string[] = []
 const accountId = "0123456789abcdef0123456789abcdef"
 const token = "cloudflare-test-token"
 
+function installFetch(handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
+  globalThis.fetch = Object.assign(handler, { preconnect: originalFetch.preconnect })
+}
+
 function useTemporaryHome() {
   const home = mkdtempSync(join(tmpdir(), "nexus-vault-cloudflare-"))
   homes.push(home)
@@ -54,10 +58,10 @@ describe("Cloudflare Workers AI API Vault contract", () => {
 
   test("validates through the documented account-scoped Run endpoint and records no response body", async () => {
     let request: Request | undefined
-    globalThis.fetch = async (input, init) => {
+    installFetch(async (input, init) => {
       request = new Request(input, init)
       return Response.json({ success: true, result: { response: "OK" } })
-    }
+    })
 
     const result = await checkKey("cloudflare-workers-ai", token, { accountId })
 
@@ -70,7 +74,7 @@ describe("Cloudflare Workers AI API Vault contract", () => {
   })
 
   test("maps Run endpoint rate limits to cooldown-eligible vault status", async () => {
-    globalThis.fetch = async () => new Response("slow down", { status: 429 })
+    installFetch(async () => new Response("slow down", { status: 429 }))
     await expect(checkKey("cloudflare-workers-ai", token, { accountId })).resolves.toMatchObject({
       status: "rate_limited",
       code: 429,
@@ -78,12 +82,13 @@ describe("Cloudflare Workers AI API Vault contract", () => {
   })
 
   test("uses an explicit curated model catalog with capability metadata instead of generic model discovery", async () => {
-    globalThis.fetch = async () => Response.json({ success: true, result: { response: "OK" } })
+    installFetch(async () => Response.json({ success: true, result: { response: "OK" } }))
     const discovered = await discoverProviderModels("cloudflare-workers-ai", token, { accountId })
     const contract = PROVIDER_CONTRACTS["cloudflare-workers-ai"]
+    const curatedModels = contract.curatedModels ?? []
 
     expect(discovered.status).toBe("active")
-    expect(discovered.models).toEqual(contract.curatedModels?.map((model) => model.id))
+    expect(discovered.models).toEqual(curatedModels.map((model) => model.id))
     expect(contract.baseURL).toBe("https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/v1")
     expect(
       contract.curatedModels?.find((model) => model.id === "@cf/meta/llama-3.2-11b-vision-instruct")?.input,

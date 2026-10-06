@@ -17,6 +17,10 @@ const originalFetch = globalThis.fetch
 const homes: string[] = []
 const token = "nvidia-nim-test-token"
 
+function installFetch(handler: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>) {
+  globalThis.fetch = Object.assign(handler, { preconnect: originalFetch.preconnect })
+}
+
 function useTemporaryHome() {
   const home = mkdtempSync(join(tmpdir(), "nexus-vault-nvidia-nim-"))
   homes.push(home)
@@ -48,22 +52,22 @@ describe("hosted NVIDIA NIM API Vault contract", () => {
 
   test("checks the hosted OpenAI-compatible models endpoint with bearer auth and maps rate limits", async () => {
     let request: Request | undefined
-    globalThis.fetch = async (input, init) => {
+    installFetch(async (input, init) => {
       request = new Request(input, init)
       return Response.json({ data: [{ id: "meta/llama-3.3-70b-instruct" }] })
-    }
+    })
 
     await expect(checkKey("nvidia-nim", token)).resolves.toMatchObject({ status: "active", code: 200 })
     expect(request?.method).toBe("GET")
     expect(request?.url).toBe("https://integrate.api.nvidia.com/v1/models")
     expect(request?.headers.get("Authorization")).toBe(`Bearer ${token}`)
 
-    globalThis.fetch = async () => new Response("slow down", { status: 429 })
+    installFetch(async () => new Response("slow down", { status: 429 }))
     await expect(checkKey("nvidia-nim", token)).resolves.toMatchObject({ status: "rate_limited", code: 429 })
   })
 
   test("uses account-reported hosted models when available and a curated fallback capability catalog otherwise", async () => {
-    globalThis.fetch = async () => Response.json({ data: [{ id: "meta/llama-3.3-70b-instruct" }] })
+    installFetch(async () => Response.json({ data: [{ id: "meta/llama-3.3-70b-instruct" }] }))
 
     const discovered = await discoverProviderModels("nvidia-nim", token)
     const catalog = withLocalFallbackCatalog({}, { "nvidia-nim": [token] })

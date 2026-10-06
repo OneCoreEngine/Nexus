@@ -9,7 +9,7 @@ const device = createDeviceReadiness({
   totalMemoryBytes: 8 * 1024 ** 3,
   freeMemoryBytes: 2 * 1024 ** 3,
   storage: {},
-  deviceGuard: { level: "ok", network: "unknown", warnings: [] },
+  deviceGuard: { platform: "termux", level: "normal", network: "unknown", warnings: [] },
 })
 
 describe("agent plan preview", () => {
@@ -27,8 +27,14 @@ describe("agent plan preview", () => {
   })
 
   test("rejects unsafe child and parallel policy requests", () => {
-    expect(() => createAgentPlanPreview({ role: "planner", children: -1, parallel: 1, budget: "low", device })).toThrow("children")
-    expect(() => createAgentPlanPreview({ role: "planner", children: 1, parallel: 3, budget: "low", device })).toThrow("lead plus children")
-    expect(() => createAgentPlanPreview({ role: "planner", children: 12, parallel: 13, budget: "low", device })).toThrow("parallel")
+    expect(() => createAgentPlanPreview({ role: "planner", children: -1, parallel: 1, budget: "low", device })).toThrow(
+      "children",
+    )
+    expect(() => createAgentPlanPreview({ role: "planner", children: 1, parallel: 3, budget: "low", device })).toThrow(
+      "lead plus children",
+    )
+    expect(() =>
+      createAgentPlanPreview({ role: "planner", children: 12, parallel: 13, budget: "low", device }),
+    ).toThrow("parallel")
   })
 })

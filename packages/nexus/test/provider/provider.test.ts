@@ -1612,7 +1612,7 @@ test("public provider info omits invalid models", () => {
     ...provider.models.valid,
     id: ModelV2.ID.make("malformed"),
     capabilities: { ...provider.models.valid.capabilities, input: undefined },
-  } as unknown as Model
+  } as unknown as Provider.Model
 
   const result = Provider.toPublicInfo(provider)
 

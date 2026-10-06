@@ -106,7 +106,8 @@ function normalizeMessages(
   const isAnthropic = model.api.npm === "@ai-sdk/anthropic"
   const isBedrock = model.api.npm === "@ai-sdk/amazon-bedrock"
   const isClaude = model.api.id.includes("claude")
-  const isMistral = model.providerID === "mistral" ||
+  const isMistral =
+    model.providerID === "mistral" ||
     (() => {
       const families = ["mistral", "devstral", "codestral", "pixtral", "mixtral"]
       return families.some((f) => model.api.id.toLowerCase().includes(f))
@@ -114,7 +115,10 @@ function normalizeMessages(
 
   const scrubClaude = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_")
   const scrubMistral = (id: string) =>
-    id.replace(/[^a-zA-Z0-9]/g, "").substring(0, 9).padEnd(9, "0")
+    id
+      .replace(/[^a-zA-Z0-9]/g, "")
+      .substring(0, 9)
+      .padEnd(9, "0")
 
   const sanitize = (text: string) => sanitizeSurrogates(text)
 
@@ -123,7 +127,7 @@ function normalizeMessages(
       content.output.value = sanitize(content.output.value)
     } else if (content.output.type === "content") {
       content.output.value = content.output.value.map((item) =>
-        item.type === "text" ? { ...item, text: sanitize(item.text) } : item
+        item.type === "text" ? { ...item, text: sanitize(item.text) } : item,
       )
     }
     return content
@@ -137,7 +141,7 @@ function normalizeMessages(
       }
       if (part.type === "tool-result") return sanitizeToolResult(part)
       return part
-    })
+    }) as ModelMessage["content"]
   }
 
   const filterEmpty = (parts: ModelMessage["content"]): ModelMessage["content"] | undefined => {
@@ -156,20 +160,25 @@ function normalizeMessages(
       }
       return true
     })
-    return filtered.length === 0 ? undefined : filtered
+    return filtered.length === 0 ? undefined : (filtered as ModelMessage["content"])
   }
 
   const scrubToolIds = (msg: ModelMessage, scrub: (id: string) => string): ModelMessage => {
     if (!Array.isArray(msg.content)) return msg
-    const role = msg.role
-    if ((role === "assistant" || role === "tool") && Array.isArray(msg.content)) {
+    const scrubPart = (part: (typeof msg.content)[number]) =>
+      (part.type === "tool-call" || part.type === "tool-result") && part.toolCallId
+        ? { ...part, toolCallId: scrub(part.toolCallId) }
+        : part
+    if (msg.role === "assistant") {
       return {
         ...msg,
-        content: msg.content.map((part) =>
-          (part.type === "tool-call" || part.type === "tool-result") && part.toolCallId
-            ? { ...part, toolCallId: scrub(part.toolCallId) }
-            : part
-        ),
+        content: msg.content.map(scrubPart) as Extract<ModelMessage, { role: "assistant" }>["content"],
+      }
+    }
+    if (msg.role === "tool") {
+      return {
+        ...msg,
+        content: msg.content.map(scrubPart) as Extract<ModelMessage, { role: "tool" }>["content"],
       }
     }
     return msg
@@ -190,7 +199,7 @@ function normalizeMessages(
     }
 
     // Build normalized message
-    let normalized: ModelMessage = { ...msg, content: sanitizedContent }
+    let normalized = { ...msg, content: sanitizedContent as typeof msg.content } as ModelMessage
 
     // Scrub tool IDs for Claude/Mistral
     if (isClaude) normalized = scrubToolIds(normalized, scrubClaude)

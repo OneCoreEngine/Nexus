@@ -7,7 +7,7 @@ async function memoryStore() {
 }
 
 export const Parameters = Schema.Struct({
-  action: Schema.Literal("remember", "recall", "list").annotate({
+  action: Schema.Literals(["remember", "recall", "list"]).annotate({
     description: "remember stores a fact, recall searches titles, list shows recent entries",
   }),
   title: Schema.optional(Schema.String.annotate({ description: "Fact title for remember, query for recall" })),
@@ -55,6 +55,7 @@ export const MemoryTool = Tool.define(
               entries.length === 0
                 ? "No memories stored yet."
                 : entries.map((entry) => `#${entry.id} ${entry.title}: ${entry.value.slice(0, 200)}`).join("\n"),
+            metadata: {},
           }
         }),
     }

@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import { Global } from "@nexus-ai/core/global"
 import { addJob, describeJob, dueJobs, loadStore, markRun, parseCron, removeJob, saveStore } from "../../scheduler"
 import { cmd } from "./cmd"
-import { effectCmd } from "../effect-cmd"
+import { CliError, effectCmd } from "../effect-cmd"
 
 function stateDir() {
   return Global.Path.state
@@ -178,7 +178,7 @@ const TasksRunDueCommand = effectCmd({
         sessionID: args.session,
         text: `[scheduled ${item.job.id}] ${item.job.instructions}`,
         agent: args.agent,
-      })
+      }).pipe(Effect.mapError((error) => new CliError({ message: String(error) })))
       store = markRun(store, item.job.id)
       admitted.push(item.job.id)
     }

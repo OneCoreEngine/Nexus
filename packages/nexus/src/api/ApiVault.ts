@@ -551,7 +551,7 @@ function modelNames(value: unknown): string[] {
   if (!value || typeof value !== "object") return []
   const root = value as Record<string, unknown>
   const isGemini = Array.isArray(root.models)
-  const rows = Array.isArray(root.data) ? root.data : isGemini ? root.models : []
+  const rows = (Array.isArray(root.data) ? root.data : isGemini ? root.models : []) as unknown[]
   return rows
     .map((item) => {
       if (typeof item === "string") return item
@@ -612,7 +612,9 @@ export async function discoverProviderModels(
       contract.auth === "query" ? `${contract.modelsEndpoint}?key=${encodeURIComponent(key)}` : contract.modelsEndpoint
     const response = await fetch(url, { headers, signal: controller.signal })
     const status =
-      contract.validation?.kind === "chat" && response.ok ? "active" : validationStatusForResponse(contract, response.status)
+      contract.validation?.kind === "chat" && response.ok
+        ? "active"
+        : validationStatusForResponse(contract, response.status)
     if (!response.ok) return { status, models: [], code: response.status }
     const models = modelNames(await response.json().catch(() => ({})))
     discoveredModelsCache.set(cacheKey, { expiresAt: Date.now() + 2 * 60 * 1000, models })

@@ -218,7 +218,7 @@ export type FooterOutput = {
   subagent?: FooterSubagentState
 }
 
-// Typed messages sent to RunFooter.event(). The prompt queue and stream
+// Typed messages sent to RunFooter.event(). The interactive loop and stream
 // transport both emit these to update footer state without reaching into
 // internal signals directly.
 export type FooterEvent =
@@ -335,11 +335,12 @@ export type LocalReplayRow = {
   after?: LocalReplayAnchor
 }
 
-// The public contract between the stream transport / prompt queue and
-// the footer. RunFooter implements this. The transport and queue never
+// The public contract between the stream transport / interactive loop and
+// the footer. RunFooter implements this. The transport and loop never
 // touch the renderer directly -- they go through this interface.
 export type FooterApi = {
   readonly isClosed: boolean
+  getLiveStatus?(): string
   onPrompt(fn: (input: RunPrompt) => void): () => void
   onQueuedRemove(fn: (messageID: string) => boolean | Promise<boolean>): () => void
   onClose(fn: () => void): () => void

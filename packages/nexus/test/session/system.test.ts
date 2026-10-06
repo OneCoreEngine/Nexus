@@ -54,62 +54,58 @@ const build: Agent.Info = {
 
 const node = LayerNode.compile(CrossSpawnSpawner.node)
 
+const filesystemLayer = (readFileStringSafe: FSUtil.Interface["readFileStringSafe"]) =>
+  Layer.effect(
+    FSUtil.Service,
+    FSUtil.Service.pipe(Effect.map((fs) => FSUtil.Service.of({ ...fs, readFileStringSafe }))),
+  ).pipe(Layer.provide(LayerNode.compile(FSUtil.node)))
+
 const it = testEffect(
   Layer.mergeAll(
-  LayerNode.compile(SystemPrompt.node, [
-    [
-      MCP.node,
-      Layer.mock(MCP.Service, {
-        instructions: () =>
-          Effect.succeed([
-            {
-              name: "guide-server",
-              instructions: "Use lookup before mutate.",
-              tools: [],
-            },
-            {
-              name: "tool-server",
-              instructions: "Prefer search before update.",
-              tools: ["tool-server_search", "tool-server_update"],
-            },
-          ]),
-      }),
-    ],
-    [
-      Skill.node,
-      Layer.succeed(
-        Skill.Service,
-        Skill.Service.of({
-          get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
-          require: (name) => {
-            const info = skills.find((skill) => skill.name === name)
-            if (info) return Effect.succeed(info)
-            return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
-          },
-          all: () => Effect.succeed(skills),
-          dirs: () => Effect.succeed([]),
-          available: () => Effect.succeed(skills),
+    LayerNode.compile(SystemPrompt.node, [
+      [
+        MCP.node,
+        Layer.mock(MCP.Service, {
+          instructions: () =>
+            Effect.succeed([
+              {
+                name: "guide-server",
+                instructions: "Use lookup before mutate.",
+                tools: [],
+              },
+              {
+                name: "tool-server",
+                instructions: "Prefer search before update.",
+                tools: ["tool-server_search", "tool-server_update"],
+              },
+            ]),
         }),
-      ),
-    ],
-    [
-      Config.node,
-      Layer.mock(Config.Service, {
-        get: () => Effect.succeed({}),
-      }),
-    ],
-    [
-      FSUtil.node,
-      Layer.mock(FSUtil.Service, {
-        readFileStringSafe: () => Effect.succeed(undefined),
-      }),
-    ],
-    [
-      Global.node,
-      Layer.mock(Global.Service, {
-        home: "/tmp/nexus-test-no-home",
-      }),
-    ],
+      ],
+      [
+        Skill.node,
+        Layer.succeed(
+          Skill.Service,
+          Skill.Service.of({
+            get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
+            require: (name) => {
+              const info = skills.find((skill) => skill.name === name)
+              if (info) return Effect.succeed(info)
+              return Effect.fail(new Skill.NotFoundError({ name, available: skills.map((skill) => skill.name) }))
+            },
+            all: () => Effect.succeed(skills),
+            dirs: () => Effect.succeed([]),
+            available: () => Effect.succeed(skills),
+          }),
+        ),
+      ],
+      [
+        Config.node,
+        Layer.mock(Config.Service, {
+          get: () => Effect.succeed({}),
+        }),
+      ],
+      [FSUtil.node, filesystemLayer(() => Effect.succeed(undefined))],
+      [Global.node, Global.layerWith({ home: "/tmp/nexus-test-no-home" })],
     ]),
     node,
   ),
@@ -211,45 +207,41 @@ describe("session.system", () => {
 
 const itOrders = testEffect(
   Layer.mergeAll(
-  LayerNode.compile(SystemPrompt.node, [
-    [
-      MCP.node,
-      Layer.mock(MCP.Service, {
-        instructions: () => Effect.succeed([]),
-      }),
-    ],
-    [
-      Skill.node,
-      Layer.succeed(
-        Skill.Service,
-        Skill.Service.of({
-          get: () => Effect.succeed(undefined),
-          require: (name) => Effect.fail(new Skill.NotFoundError({ name, available: [] })),
-          all: () => Effect.succeed([]),
-          dirs: () => Effect.succeed([]),
-          available: () => Effect.succeed([]),
+    LayerNode.compile(SystemPrompt.node, [
+      [
+        MCP.node,
+        Layer.mock(MCP.Service, {
+          instructions: () => Effect.succeed([]),
         }),
-      ),
-    ],
-    [
-      Config.node,
-      Layer.mock(Config.Service, {
-        get: () => Effect.succeed({}),
-      }),
-    ],
-    [
-      FSUtil.node,
-      Layer.mock(FSUtil.Service, {
-        readFileStringSafe: (file: string) =>
-          Effect.succeed(file.endsWith(path.join(".nexus", "standing-orders.md")) ? "Always answer in Hinglish." : undefined),
-      }),
-    ],
-    [
-      Global.node,
-      Layer.mock(Global.Service, {
-        home: "/tmp/nexus-test-no-home",
-      }),
-    ],
+      ],
+      [
+        Skill.node,
+        Layer.succeed(
+          Skill.Service,
+          Skill.Service.of({
+            get: () => Effect.succeed(undefined),
+            require: (name) => Effect.fail(new Skill.NotFoundError({ name, available: [] })),
+            all: () => Effect.succeed([]),
+            dirs: () => Effect.succeed([]),
+            available: () => Effect.succeed([]),
+          }),
+        ),
+      ],
+      [
+        Config.node,
+        Layer.mock(Config.Service, {
+          get: () => Effect.succeed({}),
+        }),
+      ],
+      [
+        FSUtil.node,
+        filesystemLayer((file: string) =>
+          Effect.succeed(
+            file.endsWith(path.join(".nexus", "standing-orders.md")) ? "Always answer in Hinglish." : undefined,
+          ),
+        ),
+      ],
+      [Global.node, Global.layerWith({ home: "/tmp/nexus-test-no-home" })],
     ]),
     node,
   ),

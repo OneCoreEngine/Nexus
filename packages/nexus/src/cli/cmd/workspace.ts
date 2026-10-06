@@ -4,7 +4,7 @@ import { EOL } from "os"
 import { Effect } from "effect"
 import { Global } from "@nexus-ai/core/global"
 import { ProjectV2 } from "@nexus-ai/core/project"
-import { effectCmd, fail } from "../effect-cmd"
+import { CliError, effectCmd, fail } from "../effect-cmd"
 import { cmd } from "./cmd"
 import { Project } from "@/project/project"
 
@@ -125,6 +125,7 @@ export async function readWorkspaceSelection(
       parsed.version !== 1 ||
       typeof parsed.projectID !== "string" ||
       !parsed.projectID ||
+      typeof parsed.selectedAt !== "number" ||
       !Number.isFinite(parsed.selectedAt)
     )
       return undefined
@@ -191,9 +192,10 @@ export const WorkspaceListCommand = effectCmd({
       choices: ["table", "json"],
       default: "table",
     }),
-  handler: Effect.fn("Cli.workspace.list")(function* (args: { format?: "table" | "json" }) {
+  handler: Effect.fn("Cli.workspace.list")(function* (args) {
     const projects = yield* Project.Service.use((service) => service.list())
-    process.stdout.write(formatWorkspaceList(projects, args.format ?? "table") + EOL)
+    const format = args.format === "json" ? "json" : "table"
+    process.stdout.write(formatWorkspaceList(projects, format) + EOL)
   }),
 })
 
@@ -207,9 +209,10 @@ export const WorkspaceCdCommand = effectCmd({
       type: "string",
       demandOption: true,
     }),
-  handler: Effect.fn("Cli.workspace.cd")(function* (args: { projectID?: string }) {
+  handler: Effect.fn("Cli.workspace.cd")(function* (args) {
     if (!args.projectID) return yield* fail("Project ID is required")
-    const project = yield* Project.Service.use((service) => service.get(ProjectV2.ID.make(args.projectID)))
+    const projectID = args.projectID
+    const project = yield* Project.Service.use((service) => service.get(ProjectV2.ID.make(projectID)))
     if (!project) return yield* fail(`Known project not found: ${args.projectID}`)
 
     process.stdout.write(`# ${project.name?.trim() || basename(project.worktree) || "known project"}${EOL}`)
@@ -234,11 +237,13 @@ export const WorkspaceShowCommand = effectCmd({
         choices: ["table", "json"],
         default: "table",
       }),
-  handler: Effect.fn("Cli.workspace.show")(function* (args: { projectID?: string; format?: "table" | "json" }) {
+  handler: Effect.fn("Cli.workspace.show")(function* (args) {
     if (!args.projectID) return yield* fail("Project ID is required")
-    const project = yield* Project.Service.use((service) => service.get(ProjectV2.ID.make(args.projectID)))
+    const projectID = args.projectID
+    const project = yield* Project.Service.use((service) => service.get(ProjectV2.ID.make(projectID)))
     if (!project) return yield* fail(`Known project not found: ${args.projectID}`)
-    process.stdout.write(formatWorkspaceDetail(project, args.format ?? "table") + EOL)
+    const format = args.format === "json" ? "json" : "table"
+    process.stdout.write(formatWorkspaceDetail(project, format) + EOL)
   }),
 })
 
@@ -263,18 +268,15 @@ export const WorkspaceRenameCommand = effectCmd({
         type: "boolean",
         default: false,
       }),
-  handler: Effect.fn("Cli.workspace.rename")(function* (args: {
-    projectID?: string
-    name?: string
-    confirm?: boolean
-  }) {
+  handler: Effect.fn("Cli.workspace.rename")(function* (args) {
     if (!args.projectID) return yield* fail("Project ID is required")
+    const projectID = args.projectID
     const name = validatedWorkspaceDisplayName(args.name)
     if (!name) return yield* fail("--name must contain 1–80 printable characters")
     if (!args.confirm) return yield* fail("Workspace display-name changes require --confirm")
     const updated = yield* Project.Service.use((service) =>
-      service.update({ projectID: ProjectV2.ID.make(args.projectID!), name }),
-    )
+      service.update({ projectID: ProjectV2.ID.make(projectID), name }),
+    ).pipe(Effect.mapError((error) => new CliError({ message: String(error) })))
     process.stdout.write(
       `Updated local display name for ${updated.id} to ${JSON.stringify(updated.name)}. No project files, commands, icon, worktree, sandbox, configuration, or selection state changed.${EOL}`,
     )
@@ -286,7 +288,10 @@ export const WorkspaceSelectedCommand = effectCmd({
   describe: "show the local workspace selection bookmark without changing anything",
   instance: false,
   handler: Effect.fn("Cli.workspace.selected")(function* () {
-    const selection = yield* Effect.tryPromise({ try: () => readWorkspaceSelection(), catch: (error) => error })
+    const selection = yield* Effect.tryPromise({
+      try: () => readWorkspaceSelection(),
+      catch: (error) => new CliError({ message: `Unable to read workspace selection: ${String(error)}` }),
+    })
     const project = selection
       ? yield* Project.Service.use((service) => service.get(ProjectV2.ID.make(selection.projectID)))
       : undefined
@@ -310,12 +315,16 @@ export const WorkspaceSelectCommand = effectCmd({
         type: "boolean",
         default: false,
       }),
-  handler: Effect.fn("Cli.workspace.select")(function* (args: { projectID?: string; confirm?: boolean }) {
+  handler: Effect.fn("Cli.workspace.select")(function* (args) {
     if (!args.projectID) return yield* fail("Project ID is required")
+    const projectID = args.projectID
     if (!args.confirm) return yield* fail("Saving a workspace selection bookmark requires --confirm")
-    const project = yield* Project.Service.use((service) => service.get(ProjectV2.ID.make(args.projectID)))
+    const project = yield* Project.Service.use((service) => service.get(ProjectV2.ID.make(projectID)))
     if (!project) return yield* fail(`Known project not found: ${args.projectID}`)
-    yield* Effect.tryPromise({ try: () => writeWorkspaceSelection({ projectID: project.id }), catch: (error) => error })
+    yield* Effect.tryPromise({
+      try: () => writeWorkspaceSelection({ projectID: project.id }),
+      catch: (error) => new CliError({ message: `Unable to save workspace selection: ${String(error)}` }),
+    })
     process.stdout.write(
       `Saved local workspace bookmark for ${project.id}. It does not change the shell, source files, project config, or active session.${EOL}`,
     )
@@ -332,9 +341,12 @@ export const WorkspaceClearSelectionCommand = effectCmd({
       type: "boolean",
       default: false,
     }),
-  handler: Effect.fn("Cli.workspace.clearSelection")(function* (args: { confirm?: boolean }) {
+  handler: Effect.fn("Cli.workspace.clearSelection")(function* (args) {
     if (!args.confirm) return yield* fail("Removing a workspace selection bookmark requires --confirm")
-    const removed = yield* Effect.tryPromise({ try: () => clearWorkspaceSelection(), catch: (error) => error })
+    const removed = yield* Effect.tryPromise({
+      try: () => clearWorkspaceSelection(),
+      catch: (error) => new CliError({ message: `Unable to clear workspace selection: ${String(error)}` }),
+    })
     process.stdout.write(
       `${removed ? "Removed" : "No"} local workspace selection bookmark. Shell, project config, source files, and active session were not changed.${EOL}`,
     )

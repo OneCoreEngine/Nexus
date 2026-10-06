@@ -6,8 +6,9 @@ import {
   proposeIncidentRepair,
   proposeSelfImprovement,
 } from "./self-improvement"
+import type { AgentCapabilities } from "./capabilities"
 
-const noBrowser = {
+const noBrowser: AgentCapabilities = {
   platform: "linux",
   architecture: "x64",
   termux: false,
@@ -21,7 +22,7 @@ const noBrowser = {
   androidDevice: false,
   apkBuild: false,
   packageManagers: ["bun"],
-} as const
+}
 
 describe("controlled self-improvement", () => {
   test("creates a reviewable proposal for missing capabilities", () => {

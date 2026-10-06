@@ -209,8 +209,6 @@ export const ModelsTestCommand = effectCmd({
         const result = yield* Effect.tryPromise({
           try: () =>
             language.value.doGenerate({
-              inputFormat: "prompt",
-              mode: { type: "regular" },
               prompt: [{ role: "user", content: [{ type: "text", text: testPrompt }] }],
             }),
           catch: (e) => e,
@@ -245,15 +243,15 @@ export const ModelsLocalCommand = cmd({
       .option("catalog", { type: "boolean", default: false, describe: "show the full local model catalog" })
       .option("model", { type: "string", describe: "show one catalog model by exact ID" })
       .option("format", { choices: ["table", "json"] as const, default: "table", describe: "output format" }),
-  handler(args: { catalog?: boolean; model?: string; format?: "table" | "json" }) {
+  handler(args) {
     const config = getDeviceConfig()
     const format = args.format ?? "table"
     if (args.model) {
-      process.stdout.write(formatLocalModelDetail(config, args.model, format) + EOL)
+      process.stdout.write(formatLocalModelDetail(config, args.model, format === "json" ? "json" : "table") + EOL)
       return
     }
     if (args.catalog) {
-      process.stdout.write(formatLocalModelCatalog(config, format) + EOL)
+      process.stdout.write(formatLocalModelCatalog(config, format === "json" ? "json" : "table") + EOL)
       return
     }
     if (format === "json") {

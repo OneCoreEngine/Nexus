@@ -136,14 +136,23 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     }) {
       let entry: ReturnType<typeof addApiKey>
       try {
-        entry = addApiKey(ctx.payload.provider, ctx.payload.key, ctx.payload.label ?? "default", "ui", ctx.payload.metadata)
+        entry = addApiKey(
+          ctx.payload.provider,
+          ctx.payload.key,
+          ctx.payload.label ?? "default",
+          "ui",
+          ctx.payload.metadata,
+        )
       } catch (error) {
         return yield* Effect.fail(vaultError(error, ctx.payload.provider))
       }
       const normalized = normalizeProvider(ctx.payload.provider)
       if (normalized) {
         yield* authStore
-          .set(normalized, new Auth.Api({ type: "api", key: entry.key, ...(entry.metadata ? { metadata: entry.metadata } : {}) }))
+          .set(
+            normalized,
+            new Auth.Api({ type: "api", key: entry.key, ...(entry.metadata ? { metadata: entry.metadata } : {}) }),
+          )
           .pipe(Effect.orElseSucceed(() => undefined))
       }
       const providerID = normalized ?? ctx.payload.provider
@@ -219,13 +228,13 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
         if (!normalized || known.has(`${normalized}:${credential.key}`)) continue
         entries.push({
           provider: normalized,
-            entry: {
-              key: credential.key,
+          entry: {
+            key: credential.key,
             label: "auth",
             added: new Date().toISOString().slice(0, 10),
             status: "unknown",
-              failures: 0,
-              ...(credential.metadata ? { metadata: credential.metadata } : {}),
+            failures: 0,
+            ...(credential.metadata ? { metadata: credential.metadata } : {}),
           },
         })
       }
@@ -257,7 +266,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
             })),
         ),
       )
-      for (const { provider: providerID, entry, discovered } of discoveries) {
+      for (const { providerID, entry, discovered } of discoveries) {
         if (discovered.status === "invalid" || discovered.status === "rate_limited")
           updateApiKeyStatus(providerID, entry.key, discovered.status)
         for (const model of discovered.models) {

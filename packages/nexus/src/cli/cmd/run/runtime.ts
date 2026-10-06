@@ -1,7 +1,7 @@
 // Top-level orchestrator for `nexus --mini`.
 //
 // Wires the boot sequence, lifecycle (renderer + footer), stream transport,
-// and prompt queue together into a single session loop. Two entry points:
+// and interactive prompt handling into a single session loop. Two entry points:
 //
 //   runInteractiveMode     -- used when an SDK client already exists (attach mode)
 //   runInteractiveLocalMode -- used for local in-process mode (no server)
@@ -11,7 +11,7 @@
 //   2. creates the split-footer lifecycle (renderer + RunFooter),
 //   3. starts the stream transport (SDK event subscription), lazily for fresh
 //      local sessions,
-//   4. runs the prompt queue until the footer closes.
+//   4. runs the interactive loop until the footer closes.
 import { createNexusClient } from "@nexus-ai/sdk/v2"
 import { Flag } from "@nexus-ai/core/flag/flag"
 import { MessageID } from "@/session/schema"
@@ -26,7 +26,7 @@ import type { LocalReplayAnchor, LocalReplayRow, RunInput, RunPrompt, RunProvide
 export { pickVariant, resolveVariant } from "./variant.shared"
 
 /** @internal Exported for testing */
-export { runPromptQueue } from "./runtime.queue"
+export { runInteractiveLoop } from "./runtime.loop"
 
 type BootContext = Pick<
   RunInput,
@@ -174,7 +174,7 @@ async function resolveExitTitle(
 
 // Core runtime loop. Boot resolves the SDK context, then we set up the
 // lifecycle (renderer + footer), wire the stream transport for SDK events,
-// and feed prompts through the queue until the user exits.
+// and feed prompts through the interactive loop until the user exits.
 //
 // Files only attach on the first prompt turn -- after that, includeFiles
 // flips to false so subsequent turns don't re-send attachments.
@@ -540,12 +540,13 @@ async function runInteractiveRuntime(input: RunRuntimeInput, deps: RunRuntimeDep
       await state.demo.start()
     }
 
-    const mod = await import("./runtime.queue")
+    const mod = await import("./runtime.loop")
     const createSession = input.createSession
-    await mod.runPromptQueue({
+    await mod.runInteractiveLoop({
       footer,
       initialInput: input.initialInput,
       trace: log,
+      getLiveStatus: () => footer.getLiveStatus?.() ?? "",
       onSend: (prompt) => {
         state.shown = true
         state.history.push(prompt)

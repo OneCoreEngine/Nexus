@@ -1,4 +1,4 @@
-import { Effect, Context, Schema, Layer } from "effect"
+import { Effect, Context, Schema, Layer, Path } from "effect"
 import { LayerNode } from "@nexus-ai/core/effect/layer-node"
 import { FSUtil } from "@nexus-ai/core/fs-util"
 import { Global } from "@nexus-ai/core/global"
@@ -53,34 +53,43 @@ export interface SessionSearchInterface {
 
 export class Service extends Context.Service<Service, SessionSearchInterface>()("@nexus/SessionSearch") {}
 
+type SessionIndex = { sessions: Session[] }
+
+const toSearchError = (error: unknown) =>
+  error instanceof SearchError
+    ? error
+    : new SearchError({ message: error instanceof Error ? error.message : String(error) })
+
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fsys = yield* FSUtil.Service
     const global = yield* Global.Service
-    const path = yield* path.Path
+    const pathService = yield* Path.Path
 
-    const searchDir = path.join(Global.Path.data, "session-search")
+    const searchDir = pathService.join(Global.Path.data, "session-search")
     yield* fsys.makeDirectory(searchDir, { recursive: true }).pipe(Effect.orDie)
 
-    const indexFile = path.join(searchDir, "index.json")
-    const sessionsDir = path.join(searchDir, "sessions")
+    const indexFile = pathService.join(searchDir, "index.json")
+    const sessionsDir = pathService.join(searchDir, "sessions")
 
     yield* fsys.makeDirectory(sessionsDir, { recursive: true }).pipe(Effect.orDie)
 
     const loadIndex = Effect.fn("SessionSearch.loadIndex")(function* () {
-      return yield* fsys.readFileStringSafe(indexFile).pipe(
-        Effect.flatMap((content) => Effect.try(() => JSON.parse(content)).pipe(Effect.catchAll(() => Effect.succeed({ sessions: [] })))),
-        Effect.catchAll(() => Effect.succeed({ sessions: [] })),
-      )
+      const content = yield* fsys.readFileStringSafe(indexFile).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (content === undefined) return { sessions: [] } satisfies SessionIndex
+      return yield* Effect.try({
+        try: () => JSON.parse(content) as SessionIndex,
+        catch: toSearchError,
+      }).pipe(Effect.catch(() => Effect.succeed({ sessions: [] } satisfies SessionIndex)))
     })
 
-    const saveIndex = Effect.fn("SessionSearch.saveIndex")(function* (index: { sessions: Session[] }) {
-      yield* fsys.writeFileString(indexFile, JSON.stringify(index, null, 2))
+    const saveIndex = Effect.fn("SessionSearch.saveIndex")(function* (index: SessionIndex) {
+      yield* fsys.writeFileString(indexFile, JSON.stringify(index, null, 2)).pipe(Effect.mapError(toSearchError))
     })
 
     const index = Effect.fn("SessionSearch.index")(function* (session: Session) {
-      const index = yield* loadIndex
+      const index = yield* loadIndex()
       const existingIdx = index.sessions.findIndex((s) => s.id === session.id)
       if (existingIdx >= 0) {
         index.sessions[existingIdx] = session
@@ -88,17 +97,19 @@ const layer = Layer.effect(
         index.sessions.unshift(session)
       }
       yield* saveIndex(index)
-      yield* fsys.writeFileString(
-        path.join(sessionsDir, `${session.id}.json`),
-        JSON.stringify(session, null, 2),
-      )
+      yield* fsys
+        .writeFileString(pathService.join(sessionsDir, `${session.id}.json`), JSON.stringify(session, null, 2))
+        .pipe(Effect.mapError(toSearchError))
     })
 
     const search = Effect.fn("SessionSearch.search")(function* (options: SearchOptions) {
-      const index = yield* loadIndex
+      const index = yield* loadIndex()
       const { query, limit = 10, offset = 0, dateFrom, dateTo, tags } = options
 
-      const queryTerms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 0)
+      const queryTerms = query
+        .toLowerCase()
+        .split(/\s+/)
+        .filter((t) => t.length > 0)
       if (queryTerms.length === 0) return []
 
       let sessions = index.sessions
@@ -142,37 +153,40 @@ const layer = Layer.effect(
     })
 
     const getSession = Effect.fn("SessionSearch.getSession")(function* (id: string) {
-      const index = yield* loadIndex
+      const index = yield* loadIndex()
       const session = index.sessions.find((s) => s.id === id)
       if (session) return session
 
-      const file = path.join(sessionsDir, `${id}.json`)
-      const content = yield* fsys.readFileStringSafe(file).pipe(Effect.catchAll(() => Effect.succeed(null)))
-      if (content) {
-        return JSON.parse(content) as Session
-      }
-      return undefined
+      const file = pathService.join(sessionsDir, `${id}.json`)
+      const content = yield* fsys.readFileStringSafe(file).pipe(Effect.catch(() => Effect.succeed(undefined)))
+      if (content === undefined) return undefined
+      return yield* Effect.try({
+        try: () => JSON.parse(content) as Session,
+        catch: toSearchError,
+      })
     })
 
     const deleteSession = Effect.fn("SessionSearch.deleteSession")(function* (id: string) {
-      const index = yield* loadIndex
+      const index = yield* loadIndex()
       index.sessions = index.sessions.filter((s) => s.id !== id)
       yield* saveIndex(index)
-      yield* fsys.remove(path.join(sessionsDir, `${id}.json`), { force: true }).pipe(Effect.ignore)
+      yield* fsys.remove(pathService.join(sessionsDir, `${id}.json`), { force: true }).pipe(Effect.ignore)
     })
 
     const listSessions = Effect.fn("SessionSearch.listSessions")(function* (limit = 50, offset = 0) {
-      const index = yield* loadIndex
-      return index.sessions
-        .sort((a, b) => b.startedAt - a.startedAt)
-        .slice(offset, offset + limit)
+      const index = yield* loadIndex()
+      return index.sessions.sort((a, b) => b.startedAt - a.startedAt).slice(offset, offset + limit)
     })
 
     return Service.of({ index, search, getSession, deleteSession, listSessions })
   }),
 )
 
-function calculateScore(session: Session, queryTerms: string[], matchedMessages: SearchResult["matchedMessages"]): number {
+function calculateScore(
+  session: Session,
+  queryTerms: string[],
+  matchedMessages: SearchResult["matchedMessages"],
+): number {
   let score = 0
   for (const msg of matchedMessages) {
     const contentLower = msg.content.toLowerCase()
