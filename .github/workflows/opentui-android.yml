@@ -63,7 +63,7 @@ jobs:
         run: |
           zig env >/dev/null
           zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseFast --prefix ./out
-          LIB="$(find ./out -name 'libopentui.so' | head -n1)"
+          LIB="$(find ../lib/aarch64-linux-musl -name 'libopentui.so' -print -quit)"
           echo "Built: ${LIB}"
           test -n "${LIB}"
           echo "LIB_PATH=${LIB}" >> "$GITHUB_ENV"
