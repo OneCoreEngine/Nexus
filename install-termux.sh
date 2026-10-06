@@ -85,6 +85,42 @@ export const FileFinder = {
 JS
 fi
 
+# OpenTUI's native renderer library (@opentui/core) ships no android-arm64
+# binary. We build one for aarch64-linux-musl in CI and attach it to releases
+# (see .github/workflows/opentui-android.yml). Place it on disk and teach the
+# bundled JS to load it instead of throwing on an unsupported platform.
+OPENTUI_LIB="$INSTALL_ROOT/opentui/libopentui.so"
+if [ ! -f "$OPENTUI_LIB" ]; then
+  say "Installing OpenTUI native renderer for Android"
+  mkdir -p "$INSTALL_ROOT/opentui"
+  OPENTUI_LIB_URL="${OTUI_LIB_URL:-}"
+  if [ -z "$OPENTUI_LIB_URL" ]; then
+    OPENTUI_LIB_URL="https://github.com/${REPO_URL#https://github.com/}/releases/latest/download/opentui-lib-musl-arm64.tar.gz"
+    OPENTUI_LIB_URL="${OPENTUI_LIB_URL%.git}"
+  fi
+  if curl -fsSL "$OPENTUI_LIB_URL" -o "$INSTALL_ROOT/opentui.tar.gz" \
+    && tar -xzf "$INSTALL_ROOT/opentui.tar.gz" -C "$INSTALL_ROOT/opentui" \
+    && cp "$INSTALL_ROOT/opentui/musl-arm64/libopentui.so" "$OPENTUI_LIB" \
+    && cp "$INSTALL_ROOT/opentui/musl-arm64/libotui-shim.so" "$INSTALL_ROOT/opentui/libotui-shim.so"; then
+    rm -f "$INSTALL_ROOT/opentui.tar.gz"
+    rm -rf "$INSTALL_ROOT/opentui/musl-arm64"
+  else
+    say "Warning: could not fetch OpenTUI native lib from $OPENTUI_LIB_URL (UI rendering disabled)"
+    rm -f "$INSTALL_ROOT/opentui.tar.gz"
+  fi
+fi
+if [ -f "$OPENTUI_LIB" ]; then
+  CORES=()
+  for d in "$SOURCE_DIR"/node_modules/.bun/@opentui+core@*/node_modules/@opentui/core; do
+    [ -d "$d" ] && CORES+=("$d")
+  done
+  for core_dir in "${CORES[@]}"; do
+    node "$SOURCE_DIR/script/patch-opentui-android.js" "$core_dir" "$OPENTUI_LIB" >/dev/null 2>&1 \
+      && say "Patched OpenTUI runtime for Android in $core_dir" \
+      || say "Warning: could not patch $core_dir (OpenTUI UI may fail)"
+  done
+fi
+
 say "Installing the nexus command"
 mkdir -p "$BIN_DIR" "$HOME/.nexus/bots" "$HOME/.nexus/tools" "$HOME/.nexus/services" "$HOME/.nexus/logs" "$HOME/.nexus/agents"
 cat > "$BIN_DIR/nexus" <<'LAUNCHER'
@@ -93,8 +129,8 @@ set -euo pipefail
 export TMPDIR="${TMPDIR:-$PREFIX/tmp}"
 mkdir -p "$TMPDIR"
 SOURCE_DIR="${NEXUS_HOME:-$HOME/.nexus}/source"
+NEXUS_LIB_DIR="${NEXUS_HOME:-$HOME/.nexus}/opentui"
 [ -d "$SOURCE_DIR" ] || { printf '%s\n' 'NEXUS source is missing. Re-run install-termux.sh.' >&2; exit 1; }
-
 # Auto-start the zen-bridge (free OpenCode Zen tier via local `opencode serve`)
 # if it is not already running. The bridge also spawns serve itself.
 BRIDGE_URL="${ZEN_BRIDGE_URL:-http://127.0.0.1:4897}"
@@ -125,6 +161,8 @@ if [ -f "$HOME/.nexus/bin/nexus-router-bridge.ts" ] && ! curl -sf --max-time 2 "
   done
 fi
 
+# libopentui.so needs the bionic-compat shim and libm resolvable at dlopen time.
+export LD_LIBRARY_PATH="${NEXUS_LIB_DIR}:${LD_LIBRARY_PATH:-}"
 cd "$SOURCE_DIR"
 exec bun run --cwd packages/nexus --conditions=browser src/index.ts "$@"
 LAUNCHER

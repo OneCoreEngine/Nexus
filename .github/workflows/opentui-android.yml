@@ -1,0 +1,121 @@
+name: Build OpenTUI native lib (Termux/Android)
+
+# Builds @opentui/core's native renderer library for aarch64-linux-musl so the
+# NEXUS agent can run on Android/Termux. Musl is the closest libc target we can
+# cross-compile to without the full Android NDK; symbol compatibility with
+# bionic is verified in the "verify" step and printed to the job summary.
+#
+# Run on demand (workflow_dispatch) or on a release tag. The resulting
+# libopentui.so is uploaded as a build artifact and, on tags, attached to the
+# GitHub release so install-termux.sh can fetch it.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  ZIG_VERSION: "0.15.2"
+  ZIG_TARBALL: "zig-x86_64-linux-0.15.2.tar.xz"
+  ZIG_URL: "https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz"
+
+jobs:
+  build:
+    name: Build libopentui.so (aarch64-linux-musl)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Cache zig toolchain
+        id: cache-zig
+        uses: actions/cache@v4
+        with:
+          path: /opt/zig
+          key: zig-${{ env.ZIG_VERSION }}
+
+      - name: Install Zig
+        if: steps.cache-zig.outputs.cache-hit != 'true'
+        run: |
+          wget -q "${ZIG_URL}" -O "${ZIG_TARBALL}"
+          sudo tar -xf "${ZIG_TARBALL}" -C /opt
+          sudo mv /opt/zig-* /opt/zig
+
+      - name: Add zig to PATH
+        run: echo "/opt/zig" >> "$GITHUB_PATH"
+
+      - name: Install tooling
+        run: sudo apt-get update -qq || true && sudo apt-get install -y -qq patchelf binutils
+
+      - name: Checkout OpenTUI source
+        uses: actions/checkout@v4
+        with:
+          repository: anomalyco/opentui
+          ref: v0.4.5
+          path: opentui
+          fetch-depth: 1
+
+      - name: Build native library
+        working-directory: opentui/packages/core/src/zig
+        run: |
+          zig env >/dev/null
+          zig build -Dtarget=aarch64-linux-musl -Doptimize=ReleaseFast --prefix ./out
+          LIB="$(find ./out -name 'libopentui.so' | head -n1)"
+          echo "Built: ${LIB}"
+          test -n "${LIB}"
+          echo "LIB_PATH=${LIB}" >> "$GITHUB_ENV"
+
+      - name: Verify musl<->bionic symbol compatibility
+        run: |
+          LIB="${LIB_PATH}"
+          echo "## Symbol audit for ${LIB}" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### DT_NEEDED" >> "$GITHUB_STEP_SUMMARY"
+          readelf -d "${LIB}" | grep -E "NEEDED" || echo "_no NEEDED entries_" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "### Undefined (dynamic) symbols" >> "$GITHUB_STEP_SUMMARY"
+          NM_OUT="$(nm -D "${LIB}" | grep ' U ' || true)"
+          if [ -n "${NM_OUT}" ]; then
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "${NM_OUT}" | awk '{print $2}' >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo ":warning: Undefined symbols above must be resolvable by bionic or the shim, otherwise dlopen fails." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "_no undefined symbols_" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Build bionic compat shim + link dependencies
+        run: |
+          zig cc -shared -target aarch64-linux-musl -nostdlib -O2 \
+            script/opentui/bionic-shim.c -o libotui-shim.so
+          patchelf --add-needed libm.so "${LIB_PATH}"
+          patchelf --add-needed libotui-shim.so "${LIB_PATH}"
+          echo "=== final NEEDED ==="
+          readelf -d "${LIB_PATH}" | grep -E "NEEDED"
+          echo "=== shim exports ==="
+          nm -D libotui-shim.so | grep ' T '
+
+      - name: Package artifact
+        run: |
+          mkdir -p dist/musl-arm64
+          cp "${LIB_PATH}" dist/musl-arm64/libopentui.so
+          cp libotui-shim.so dist/musl-arm64/libotui-shim.so
+          ls -la dist/musl-arm64/
+          tar -czf opentui-lib-musl-arm64.tar.gz -C dist musl-arm64
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: opentui-lib-musl-arm64
+          path: opentui-lib-musl-arm64.tar.gz
+          retention-days: 14
+
+      - name: Attach to release (on tags)
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${GITHUB_REF_NAME}" opentui-lib-musl-arm64.tar.gz --clobber
