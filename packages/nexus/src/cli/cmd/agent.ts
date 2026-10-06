@@ -10,13 +10,40 @@ import { EOL } from "os"
 import type { Argv } from "yargs"
 import { Effect } from "effect"
 import { effectCmd } from "../effect-cmd"
-import { AgentPlatformStore, type GatewayChannel, type GatewayRuntimeMode, type LearningStatus, type MemoryKind, type MemoryScope, type MemorySyncPack } from "../../agent-platform/store"
+import {
+  AgentPlatformStore,
+  type GatewayChannel,
+  type GatewayRuntimeMode,
+  type LearningStatus,
+  type MemoryKind,
+  type MemoryScope,
+  type MemorySyncPack,
+} from "../../agent-platform/store"
 import { openLocalBrowser, parseBrowserHandoffTarget } from "../../agent-platform/browser-handoff"
-import { clearLocalGatewayState, defaultLocalGatewayStatePath, gatewayCredentialName, isLocalGatewayProcessRunning, pollTelegramOnce, readLocalGatewayState, startLocalGatewayServer, type GatewayCredentialKind } from "../../agent-platform/gateway-local"
+import {
+  clearLocalGatewayState,
+  defaultLocalGatewayStatePath,
+  gatewayCredentialName,
+  isLocalGatewayProcessRunning,
+  pollTelegramOnce,
+  readLocalGatewayState,
+  startLocalGatewayServer,
+  type GatewayCredentialKind,
+} from "../../agent-platform/gateway-local"
 import { planGatewayRun } from "../../agent-platform/gateway"
 import { SecretStore } from "@nexus-ai/assistant/core/secret-store"
-import { formatSpecialistRole, formatSpecialistRoles, specialistRoleNames, type SpecialistRoleName } from "./agent-roles"
-import { agentCapabilitySections, agentCapabilityStatus, formatAgentCapabilityStatus, type AgentCapabilitySection } from "./agent-status"
+import {
+  formatSpecialistRole,
+  formatSpecialistRoles,
+  specialistRoleNames,
+  type SpecialistRoleName,
+} from "./agent-roles"
+import {
+  agentCapabilitySections,
+  agentCapabilityStatus,
+  formatAgentCapabilityStatus,
+  type AgentCapabilitySection,
+} from "./agent-status"
 import { collectDeviceReadiness } from "./device"
 import { createAgentPlanPreview, formatAgentPlanPreview } from "./agent-plan-preview"
 
@@ -268,10 +295,10 @@ const AgentRoleCommand = cmd({
       .positional("operation", { choices: ["list", "show"] as const, describe: "inspect all roles or one role" })
       .positional("role", { choices: specialistRoleNames, describe: "role name required for show" })
       .option("format", { choices: ["table", "json"] as const, default: "table", describe: "output format" }),
-  handler(args: { operation: "list" | "show"; role?: SpecialistRoleName; format?: "table" | "json" }) {
+  handler(args) {
     const format = args.format ?? "table"
     if (args.operation === "list") {
-      process.stdout.write(formatSpecialistRoles(format) + EOL)
+      process.stdout.write(formatSpecialistRoles(format === "json" ? "json" : "table") + EOL)
       return
     }
     if (!args.role) {
@@ -279,7 +306,7 @@ const AgentRoleCommand = cmd({
       process.exitCode = 1
       return
     }
-    process.stdout.write(formatSpecialistRole(args.role, format) + EOL)
+    process.stdout.write(formatSpecialistRole(args.role, format === "json" ? "json" : "table") + EOL)
   },
 })
 
@@ -293,12 +320,23 @@ const AgentMemoryCommand = cmd({
   describe: "manage local, redacted, cross-session agent memory",
   builder: (yargs: Argv) =>
     yargs
-      .positional("operation", { choices: ["add", "list", "search", "replace", "delete", "export", "import"] as const, describe: "memory operation" })
+      .positional("operation", {
+        choices: ["add", "list", "search", "replace", "delete", "export", "import"] as const,
+        describe: "memory operation",
+      })
       .positional("query", { type: "string", array: true, describe: "search text" })
       .option("content", { type: "string", describe: "memory text for add" })
-      .option("scope", { choices: ["device", "project", "channel"] as const, default: "device", describe: "memory visibility scope" })
+      .option("scope", {
+        choices: ["device", "project", "channel"] as const,
+        default: "device",
+        describe: "memory visibility scope",
+      })
       .option("scope-id", { type: "string", default: "default", describe: "scope identifier" })
-      .option("kind", { choices: ["fact", "preference", "decision", "summary", "instruction"] as const, default: "fact", describe: "memory classification" })
+      .option("kind", {
+        choices: ["fact", "preference", "decision", "summary", "instruction"] as const,
+        default: "fact",
+        describe: "memory classification",
+      })
       .option("confidence", { type: "number", default: 0.8, describe: "confidence from 0 to 1" })
       .option("file", { type: "string", describe: "manual redacted memory sync-pack path for export or import" }),
   async handler(args: any) {
@@ -308,23 +346,39 @@ const AgentMemoryCommand = cmd({
       const scopeId = args.scopeId as string
       if (args.operation === "export" || args.operation === "import") {
         if (!args.file) throw new Error("Memory sync requires --file <path>")
-        if (scope === "device") throw new Error("Device-scoped memory cannot be synced. Select --scope project or --scope channel explicitly.")
+        if (scope === "device")
+          throw new Error(
+            "Device-scoped memory cannot be synced. Select --scope project or --scope channel explicitly.",
+          )
         if (args.operation === "export") {
           const pack = store.exportMemorySyncPack(scope, scopeId)
           await fs.writeFile(args.file, JSON.stringify(pack, null, 2) + "\n", "utf8")
-          process.stdout.write(`Exported ${pack.records.length} redacted ${scope}:${scopeId} memory record(s) to ${args.file}. The pack contains no API vault keys, credentials, browser data, shell history, or project files.${EOL}`)
+          process.stdout.write(
+            `Exported ${pack.records.length} redacted ${scope}:${scopeId} memory record(s) to ${args.file}. The pack contains no API vault keys, credentials, browser data, shell history, or project files.${EOL}`,
+          )
           return
         }
         const pack = JSON.parse(await fs.readFile(args.file, "utf8")) as MemorySyncPack
-        if (pack.scope !== scope || pack.scopeId !== scopeId) throw new Error(`Sync pack scope must match the explicit --scope ${scope} --scope-id ${scopeId} selection`)
+        if (pack.scope !== scope || pack.scopeId !== scopeId)
+          throw new Error(`Sync pack scope must match the explicit --scope ${scope} --scope-id ${scopeId} selection`)
         const imported = store.importMemorySyncPack(pack)
-        process.stdout.write(`Imported ${imported.length} redacted ${scope}:${scopeId} memory record(s) from ${args.file}. Existing exact records were deduplicated.${EOL}`)
+        process.stdout.write(
+          `Imported ${imported.length} redacted ${scope}:${scopeId} memory record(s) from ${args.file}. Existing exact records were deduplicated.${EOL}`,
+        )
         return
       }
       if (args.operation === "add") {
-        if (!args.content) throw new Error("Memory content required. Use: nexus agent memory add --content \"...\"")
-        const memory = store.addMemory({ scope, scopeId, kind: args.kind as MemoryKind, content: args.content, confidence: args.confidence })
-        process.stdout.write(`Saved redacted ${memory.kind} memory ${memory.id} in ${memory.scope}:${memory.scopeId}${EOL}`)
+        if (!args.content) throw new Error('Memory content required. Use: nexus agent memory add --content "..."')
+        const memory = store.addMemory({
+          scope,
+          scopeId,
+          kind: args.kind as MemoryKind,
+          content: args.content,
+          confidence: args.confidence,
+        })
+        process.stdout.write(
+          `Saved redacted ${memory.kind} memory ${memory.id} in ${memory.scope}:${memory.scopeId}${EOL}`,
+        )
         return
       }
       const id = (args.query ?? [])[0]
@@ -335,19 +389,24 @@ const AgentMemoryCommand = cmd({
         return
       }
       if (args.operation === "replace") {
-        if (!id || !args.content) throw new Error("Memory replacement requires an id and --content. Use: nexus agent memory replace <id> --content \"...\"")
+        if (!id || !args.content)
+          throw new Error(
+            'Memory replacement requires an id and --content. Use: nexus agent memory replace <id> --content "..."',
+          )
         const replacement = store.replaceMemory(id, { content: args.content, confidence: args.confidence })
         process.stdout.write(`Memory ${id} superseded by redacted replacement ${replacement.id}.${EOL}`)
         return
       }
-      const memories = args.operation === "search"
-        ? store.searchMemory((args.query ?? []).join(" "), scope, scopeId)
-        : store.listMemory(scope, scopeId)
+      const memories =
+        args.operation === "search"
+          ? store.searchMemory((args.query ?? []).join(" "), scope, scopeId)
+          : store.listMemory(scope, scopeId)
       if (!memories.length) {
         process.stdout.write(`No active memory in ${scope}:${scopeId}${EOL}`)
         return
       }
-      for (const memory of memories) process.stdout.write(`${memory.id}\t${memory.kind}\t${memory.confidence}\t${memory.content}${EOL}`)
+      for (const memory of memories)
+        process.stdout.write(`${memory.id}\t${memory.kind}\t${memory.confidence}\t${memory.content}${EOL}`)
     } catch (error) {
       platformError(error)
     } finally {
@@ -361,20 +420,33 @@ const AgentLearningCommand = cmd({
   describe: "review and approve reusable learning proposals; no proposal activates automatically",
   builder: (yargs: Argv) =>
     yargs
-      .positional("operation", { choices: ["propose", "list", "approve", "reject", "skills", "revoke"] as const, describe: "learning operation" })
+      .positional("operation", {
+        choices: ["propose", "list", "approve", "reject", "skills", "revoke"] as const,
+        describe: "learning operation",
+      })
       .positional("id", { type: "string", describe: "proposal id for approve or reject" })
       .option("run", { type: "string", describe: "source run id for a proposal" })
       .option("title", { type: "string", describe: "proposal title" })
       .option("summary", { type: "string", describe: "proposal summary" })
       .option("skill", { type: "string", describe: "draft reusable skill text" })
-      .option("status", { choices: ["proposed", "approved", "rejected", "superseded"] as const, describe: "optional list filter" }),
+      .option("status", {
+        choices: ["proposed", "approved", "rejected", "superseded"] as const,
+        describe: "optional list filter",
+      }),
   async handler(args: any) {
     const store = new AgentPlatformStore()
     try {
       if (args.operation === "propose") {
         if (!args.run || !args.title || !args.skill) throw new Error("Proposal requires --run, --title, and --skill")
-        const proposal = store.proposeLearning({ runId: args.run, title: args.title, summary: args.summary ?? "", skillDraft: args.skill })
-        process.stdout.write(`Learning proposal ${proposal.id} saved as proposed. Review with: nexus agent learning approve ${proposal.id}${EOL}`)
+        const proposal = store.proposeLearning({
+          runId: args.run,
+          title: args.title,
+          summary: args.summary ?? "",
+          skillDraft: args.skill,
+        })
+        process.stdout.write(
+          `Learning proposal ${proposal.id} saved as proposed. Review with: nexus agent learning approve ${proposal.id}${EOL}`,
+        )
         return
       }
       if (args.operation === "approve") {
@@ -398,12 +470,16 @@ const AgentLearningCommand = cmd({
       if (args.operation === "skills") {
         const skills = store.listSkillRevisions()
         if (!skills.length) process.stdout.write("No approved skill revisions found" + EOL)
-        for (const skill of skills) process.stdout.write(`${skill.id}\trevision=${skill.revision}\t${skill.title}\tproposal=${skill.proposalId}${EOL}`)
+        for (const skill of skills)
+          process.stdout.write(
+            `${skill.id}\trevision=${skill.revision}\t${skill.title}\tproposal=${skill.proposalId}${EOL}`,
+          )
         return
       }
       const proposals = store.listLearning(args.status as LearningStatus | undefined)
       if (!proposals.length) process.stdout.write("No learning proposals found" + EOL)
-      for (const proposal of proposals) process.stdout.write(`${proposal.id}\t${proposal.status}\t${proposal.title}\t${proposal.summary}${EOL}`)
+      for (const proposal of proposals)
+        process.stdout.write(`${proposal.id}\t${proposal.status}\t${proposal.title}\t${proposal.summary}${EOL}`)
     } catch (error) {
       platformError(error)
     } finally {
@@ -417,31 +493,50 @@ const AgentScheduleCommand = cmd({
   describe: "define local schedules; new schedules remain disabled until a later explicit enable flow",
   builder: (yargs: Argv) =>
     yargs
-      .positional("operation", { choices: ["add", "list", "enable", "disable"] as const, describe: "schedule operation" })
+      .positional("operation", {
+        choices: ["add", "list", "enable", "disable"] as const,
+        describe: "schedule operation",
+      })
       .positional("id", { type: "string", describe: "schedule id for enable or disable" })
       .option("name", { type: "string", describe: "unique schedule name" })
       .option("cron", { type: "string", describe: "cron expression" })
       .option("timezone", { type: "string", default: "UTC", describe: "IANA time zone" })
       .option("task", { type: "string", describe: "redacted task payload" })
-      .option("confirm", { type: "boolean", default: false, describe: "explicitly confirm schedule activation or deactivation" }),
+      .option("confirm", {
+        type: "boolean",
+        default: false,
+        describe: "explicitly confirm schedule activation or deactivation",
+      }),
   async handler(args: any) {
     const store = new AgentPlatformStore()
     try {
       if (args.operation === "add") {
         if (!args.name || !args.cron || !args.task) throw new Error("Schedule requires --name, --cron, and --task")
-        const schedule = store.createSchedule({ name: args.name, expression: args.cron, timezone: args.timezone, payload: args.task })
-        process.stdout.write(`Schedule ${schedule.name} created disabled. It will not run until a gateway scheduler claims it after explicit enablement.${EOL}`)
+        const schedule = store.createSchedule({
+          name: args.name,
+          expression: args.cron,
+          timezone: args.timezone,
+          payload: args.task,
+        })
+        process.stdout.write(
+          `Schedule ${schedule.name} created disabled. It will not run until a gateway scheduler claims it after explicit enablement.${EOL}`,
+        )
         return
       }
       if (args.operation === "enable" || args.operation === "disable") {
         if (!args.id) throw new Error("Schedule id required")
         store.setScheduleEnabled(args.id, { enabled: args.operation === "enable", confirmed: args.confirm === true })
-        process.stdout.write(`Schedule ${args.id} ${args.operation === "enable" ? "enabled" : "disabled"}. A local CLI command does not start a hidden background scheduler.${EOL}`)
+        process.stdout.write(
+          `Schedule ${args.id} ${args.operation === "enable" ? "enabled" : "disabled"}. A local CLI command does not start a hidden background scheduler.${EOL}`,
+        )
         return
       }
       const schedules = store.listSchedules()
       if (!schedules.length) process.stdout.write("No agent schedules defined" + EOL)
-      for (const schedule of schedules) process.stdout.write(`${schedule.id}\t${schedule.enabled ? "enabled" : "disabled"}\t${schedule.expression}\t${schedule.timezone}\t${schedule.name}${EOL}`)
+      for (const schedule of schedules)
+        process.stdout.write(
+          `${schedule.id}\t${schedule.enabled ? "enabled" : "disabled"}\t${schedule.expression}\t${schedule.timezone}\t${schedule.name}${EOL}`,
+        )
     } catch (error) {
       platformError(error)
     } finally {
@@ -455,16 +550,55 @@ const AgentGatewayCommand = cmd({
   describe: "register opt-in channel metadata and inspect gateway connection state; no raw bot token is accepted",
   builder: (yargs: Argv) =>
     yargs
-      .positional("operation", { choices: ["register", "list", "enable", "disable", "credential-set", "local-start", "local-status", "local-stop", "telegram-poll"] as const, describe: "gateway operation" })
-      .positional("id", { type: "string", describe: "connection id for enable, disable, credential-set, or telegram-poll" })
+      .positional("operation", {
+        choices: [
+          "register",
+          "list",
+          "enable",
+          "disable",
+          "credential-set",
+          "local-start",
+          "local-status",
+          "local-stop",
+          "telegram-poll",
+        ] as const,
+        describe: "gateway operation",
+      })
+      .positional("id", {
+        type: "string",
+        describe: "connection id for enable, disable, credential-set, or telegram-poll",
+      })
       .option("channel", { choices: ["telegram", "discord", "slack"] as const, describe: "target chat platform" })
       .option("label", { type: "string", describe: "connection label" })
-      .option("mode", { choices: ["local", "hosted"] as const, default: "local", describe: "local foreground mode by default; hosted is an explicit custom profile" })
-      .option("credential-ref", { type: "string", describe: "opaque server credential reference such as credential://telegram/personal" })
-      .option("allowed-sender", { type: "string", array: true, describe: "explicitly authorized channel sender id; repeat for each owner" })
-      .option("kind", { choices: ["telegram-bot-token", "telegram-webhook-secret", "slack-signing-secret", "discord-public-key"] as const, describe: "credential material class for credential-set" })
+      .option("mode", {
+        choices: ["local", "hosted"] as const,
+        default: "local",
+        describe: "local foreground mode by default; hosted is an explicit custom profile",
+      })
+      .option("credential-ref", {
+        type: "string",
+        describe: "opaque server credential reference such as credential://telegram/personal",
+      })
+      .option("allowed-sender", {
+        type: "string",
+        array: true,
+        describe: "explicitly authorized channel sender id; repeat for each owner",
+      })
+      .option("kind", {
+        choices: [
+          "telegram-bot-token",
+          "telegram-webhook-secret",
+          "slack-signing-secret",
+          "discord-public-key",
+        ] as const,
+        describe: "credential material class for credential-set",
+      })
       .option("port", { type: "number", default: 8787, describe: "loopback-only local listener port for local-start" })
-      .option("confirm", { type: "boolean", default: false, describe: "explicitly confirm connection enablement or disablement" }),
+      .option("confirm", {
+        type: "boolean",
+        default: false,
+        describe: "explicitly confirm connection enablement or disablement",
+      }),
   async handler(args: any) {
     const store = new AgentPlatformStore()
     try {
@@ -473,11 +607,15 @@ const AgentGatewayCommand = cmd({
         const connection = store.listGatewayConnections().find((item) => item.id === args.id)
         if (!connection) throw new Error(`Gateway connection not found: ${args.id}`)
         const kind = args.kind as GatewayCredentialKind
-        const secret = await prompts.password({ message: `Enter ${kind} for ${connection.channel}; it is encrypted locally and never echoed` })
+        const secret = await prompts.password({
+          message: `Enter ${kind} for ${connection.channel}; it is encrypted locally and never echoed`,
+        })
         if (prompts.isCancel(secret)) throw new UI.CancelledError()
         if (!secret?.trim()) throw new Error("Credential value cannot be empty")
         SecretStore.setSecret(gatewayCredentialName(connection.id, kind), secret.trim())
-        process.stdout.write(`Encrypted local credential material saved for ${connection.id}. No token was added to command history.${EOL}`)
+        process.stdout.write(
+          `Encrypted local credential material saved for ${connection.id}. No token was added to command history.${EOL}`,
+        )
         return
       }
       if (args.operation === "local-status") {
@@ -486,7 +624,10 @@ const AgentGatewayCommand = cmd({
         else if (!isLocalGatewayProcessRunning(state.pid)) {
           clearLocalGatewayState()
           process.stdout.write("Removed stale local gateway state; no foreground gateway process is running." + EOL)
-        } else process.stdout.write(`Local gateway recorded at http://${state.host}:${state.port} (pid ${state.pid}). It runs only while that user-started process remains alive.${EOL}`)
+        } else
+          process.stdout.write(
+            `Local gateway recorded at http://${state.host}:${state.port} (pid ${state.pid}). It runs only while that user-started process remains alive.${EOL}`,
+          )
         return
       }
       if (args.operation === "local-stop") {
@@ -505,7 +646,9 @@ const AgentGatewayCommand = cmd({
           process.kill(state.pid, "SIGTERM")
           process.stdout.write(`Stop signal sent to local gateway process ${state.pid}.${EOL}`)
         } catch {
-          throw new Error(`Local gateway process ${state.pid} is not running; remove only a confirmed-stale state file at ${defaultLocalGatewayStatePath()}`)
+          throw new Error(
+            `Local gateway process ${state.pid} is not running; remove only a confirmed-stale state file at ${defaultLocalGatewayStatePath()}`,
+          )
         }
         return
       }
@@ -515,7 +658,9 @@ const AgentGatewayCommand = cmd({
           port: args.port,
           credentialFor: (connectionId, kind) => SecretStore.getSecret(gatewayCredentialName(connectionId, kind)),
         })
-        process.stdout.write(`Local gateway listening only at http://${runtime.state.host}:${runtime.state.port}. It is a foreground process; press Ctrl+C to stop it. No boot service or public tunnel was created.${EOL}`)
+        process.stdout.write(
+          `Local gateway listening only at http://${runtime.state.host}:${runtime.state.port}. It is a foreground process; press Ctrl+C to stop it. No boot service or public tunnel was created.${EOL}`,
+        )
         await new Promise<void>((resolve) => {
           const close = () => runtime.close().finally(resolve)
           process.once("SIGINT", close)
@@ -526,16 +671,24 @@ const AgentGatewayCommand = cmd({
       if (args.operation === "telegram-poll") {
         if (!args.id) throw new Error("Telegram polling requires a local Telegram connection id")
         const connection = store.listGatewayConnections().find((item) => item.id === args.id)
-        if (!connection || connection.channel !== "telegram" || connection.runtimeMode !== "local") throw new Error("Telegram polling requires an enabled local Telegram connection")
+        if (!connection || connection.channel !== "telegram" || connection.runtimeMode !== "local")
+          throw new Error("Telegram polling requires an enabled local Telegram connection")
         if (!connection.enabled) throw new Error("Enable this Telegram connection with --confirm before polling")
         const token = SecretStore.getSecret(gatewayCredentialName(connection.id, "telegram-bot-token"))
-        if (!token) throw new Error(`No encrypted Telegram bot token is stored. Use: nexus agent gateway credential-set ${connection.id} --kind telegram-bot-token`)
+        if (!token)
+          throw new Error(
+            `No encrypted Telegram bot token is stored. Use: nexus agent gateway credential-set ${connection.id} --kind telegram-bot-token`,
+          )
         let offset: number | undefined
         let stopped = false
-        const stop = () => { stopped = true }
+        const stop = () => {
+          stopped = true
+        }
         process.once("SIGINT", stop)
         process.once("SIGTERM", stop)
-        process.stdout.write(`Polling Telegram in the foreground for local connection ${connection.id}. Press Ctrl+C to stop; no background service was created.${EOL}`)
+        process.stdout.write(
+          `Polling Telegram in the foreground for local connection ${connection.id}. Press Ctrl+C to stop; no background service was created.${EOL}`,
+        )
         try {
           while (!stopped) {
             const result = await pollTelegramOnce({
@@ -552,8 +705,15 @@ const AgentGatewayCommand = cmd({
         return
       }
       if (args.operation === "register") {
-        if (!args.channel || !args.label || !args.credentialRef || !(args.allowedSender as string[] | undefined)?.length) {
-          throw new Error("Gateway registration requires --channel, --label, --credential-ref, and at least one --allowed-sender")
+        if (
+          !args.channel ||
+          !args.label ||
+          !args.credentialRef ||
+          !(args.allowedSender as string[] | undefined)?.length
+        ) {
+          throw new Error(
+            "Gateway registration requires --channel, --label, --credential-ref, and at least one --allowed-sender",
+          )
         }
         const connection = store.registerGatewayConnection({
           channel: args.channel as GatewayChannel,
@@ -562,19 +722,26 @@ const AgentGatewayCommand = cmd({
           credentialRef: args.credentialRef,
           allowedSenders: args.allowedSender as string[],
         })
-        process.stdout.write(`Gateway connection ${connection.id} registered disabled for ${connection.channel} in ${connection.runtimeMode} mode. Store the bot/app secret in encrypted local storage or the chosen hosted credential store, not this command.${EOL}`)
+        process.stdout.write(
+          `Gateway connection ${connection.id} registered disabled for ${connection.channel} in ${connection.runtimeMode} mode. Store the bot/app secret in encrypted local storage or the chosen hosted credential store, not this command.${EOL}`,
+        )
         return
       }
       if (args.operation === "enable" || args.operation === "disable") {
         if (!args.id) throw new Error("Gateway connection id required")
         if (!args.confirm) throw new Error("Gateway connection changes require --confirm")
         store.setGatewayConnectionEnabled(args.id, args.operation === "enable")
-        process.stdout.write(`Gateway connection ${args.id} ${args.operation === "enable" ? "enabled" : "disabled"}.${EOL}`)
+        process.stdout.write(
+          `Gateway connection ${args.id} ${args.operation === "enable" ? "enabled" : "disabled"}.${EOL}`,
+        )
         return
       }
       const connections = store.listGatewayConnections()
       if (!connections.length) process.stdout.write("No gateway connections registered" + EOL)
-      for (const connection of connections) process.stdout.write(`${connection.id}\t${connection.channel}\t${connection.runtimeMode}\t${connection.enabled ? "enabled" : "disabled"}\t${connection.label}\tallowed=${connection.allowedSenders.length}${EOL}`)
+      for (const connection of connections)
+        process.stdout.write(
+          `${connection.id}\t${connection.channel}\t${connection.runtimeMode}\t${connection.enabled ? "enabled" : "disabled"}\t${connection.label}\tallowed=${connection.allowedSenders.length}${EOL}`,
+        )
     } catch (error) {
       platformError(error)
     } finally {
@@ -588,11 +755,18 @@ const AgentBrowserCommand = cmd({
   describe: "open an explicitly approved local browser page and record human-controlled handoff checkpoints",
   builder: (yargs: Argv) =>
     yargs
-      .positional("operation", { choices: ["start", "list", "resume", "complete", "cancel"] as const, describe: "browser handoff operation" })
+      .positional("operation", {
+        choices: ["start", "list", "resume", "complete", "cancel"] as const,
+        describe: "browser handoff operation",
+      })
       .positional("id", { type: "string", describe: "browser handoff id for resume, complete, or cancel" })
       .option("url", { type: "string", describe: "explicit http(s) URL to open locally for start" })
       .option("purpose", { type: "string", describe: "non-sensitive reason for the browser handoff" })
-      .option("confirm", { type: "boolean", default: false, describe: "confirm this local browser handoff or state transition" }),
+      .option("confirm", {
+        type: "boolean",
+        default: false,
+        describe: "confirm this local browser handoff or state transition",
+      }),
   async handler(args: any) {
     const store = new AgentPlatformStore()
     try {
@@ -607,23 +781,32 @@ const AgentBrowserCommand = cmd({
           store.transitionBrowserHandoff(handoff.id, "cancel")
           throw error
         }
-        process.stdout.write(`Opened ${handoff.origin} in your local browser. Handoff ${handoff.id} is awaiting you.${EOL}`)
-        process.stdout.write(`Complete login, password/OTP/CAPTCHA, private data entry, declarations, payments, and final submission yourself in the browser. Then run: nexus agent browser resume ${handoff.id} --confirm${EOL}`)
+        process.stdout.write(
+          `Opened ${handoff.origin} in your local browser. Handoff ${handoff.id} is awaiting you.${EOL}`,
+        )
+        process.stdout.write(
+          `Complete login, password/OTP/CAPTCHA, private data entry, declarations, payments, and final submission yourself in the browser. Then run: nexus agent browser resume ${handoff.id} --confirm${EOL}`,
+        )
         return
       }
       if (args.operation === "list") {
         const handoffs = store.listBrowserHandoffs()
         if (!handoffs.length) process.stdout.write("No local browser handoffs recorded" + EOL)
-        for (const handoff of handoffs) process.stdout.write(`${handoff.id}\t${handoff.status}\t${handoff.origin}\t${handoff.purpose}${EOL}`)
+        for (const handoff of handoffs)
+          process.stdout.write(`${handoff.id}\t${handoff.status}\t${handoff.origin}\t${handoff.purpose}${EOL}`)
         return
       }
       if (!args.id) throw new Error(`Browser handoff id required for ${args.operation}`)
       if (!args.confirm) throw new Error(`Browser handoff ${args.operation} requires --confirm`)
       const handoff = store.transitionBrowserHandoff(args.id, args.operation as "resume" | "complete" | "cancel")
       if (args.operation === "resume") {
-        process.stdout.write(`Handoff ${handoff.id} resumed. This records only your confirmation; NEXUS did not inspect the browser, read credentials, or verify a website state.${EOL}`)
+        process.stdout.write(
+          `Handoff ${handoff.id} resumed. This records only your confirmation; NEXUS did not inspect the browser, read credentials, or verify a website state.${EOL}`,
+        )
       } else if (args.operation === "complete") {
-        process.stdout.write(`Handoff ${handoff.id} recorded as completed by you. NEXUS did not submit or verify any external form or action.${EOL}`)
+        process.stdout.write(
+          `Handoff ${handoff.id} recorded as completed by you. NEXUS did not submit or verify any external form or action.${EOL}`,
+        )
       } else {
         process.stdout.write(`Handoff ${handoff.id} cancelled locally. No browser data was retained.${EOL}`)
       }
@@ -643,7 +826,11 @@ const AgentRunCommand = cmd({
       .positional("operation", { choices: ["plan", "list"] as const, describe: "run operation" })
       .option("children", { type: "number", default: 2, describe: "maximum child agents, from 0 to 12" })
       .option("parallel", { type: "number", default: 3, describe: "maximum total parallel agents, from 1 to 12" })
-      .option("budget", { choices: ["low", "standard", "high"] as const, default: "standard", describe: "execution budget class" })
+      .option("budget", {
+        choices: ["low", "standard", "high"] as const,
+        default: "standard",
+        describe: "execution budget class",
+      })
       .option("idempotency-key", { type: "string", describe: "optional replay-safe planning key" }),
   async handler(args: any) {
     const store = new AgentPlatformStore()
@@ -653,12 +840,17 @@ const AgentRunCommand = cmd({
           idempotencyKey: args.idempotencyKey,
           policy: { maxChildren: args.children, maxParallel: args.parallel, budgetClass: args.budget },
         })
-        process.stdout.write(`Planned local run ${run.id}: lead + up to ${run.policy.maxChildren} children, max ${run.policy.maxParallel} parallel. No background work started.${EOL}`)
+        process.stdout.write(
+          `Planned local run ${run.id}: lead + up to ${run.policy.maxChildren} children, max ${run.policy.maxParallel} parallel. No background work started.${EOL}`,
+        )
         return
       }
       const runs = store.listRuns()
       if (!runs.length) process.stdout.write("No durable agent runs planned" + EOL)
-      for (const run of runs) process.stdout.write(`${run.id}\t${run.status}\t${run.policy.budgetClass}\tchildren=${run.policy.maxChildren}\tparallel=${run.policy.maxParallel}${EOL}`)
+      for (const run of runs)
+        process.stdout.write(
+          `${run.id}\t${run.status}\t${run.policy.budgetClass}\tchildren=${run.policy.maxChildren}\tparallel=${run.policy.maxParallel}${EOL}`,
+        )
     } catch (error) {
       platformError(error)
     } finally {
@@ -673,8 +865,11 @@ const AgentStatusCommand = cmd({
   builder: (yargs) =>
     yargs
       .option("format", { choices: ["table", "json"] as const, default: "table", describe: "output format" })
-      .option("section", { choices: agentCapabilitySections, describe: "inspect exactly one redacted capability area" }),
-  async handler(args: { format?: "table" | "json"; section?: AgentCapabilitySection }) {
+      .option("section", {
+        choices: agentCapabilitySections,
+        describe: "inspect exactly one redacted capability area",
+      }),
+  async handler(args) {
     const store = new AgentPlatformStore()
     try {
       const status = agentCapabilityStatus({
@@ -686,7 +881,9 @@ const AgentStatusCommand = cmd({
         device: await collectDeviceReadiness(),
         localGatewayState: readLocalGatewayState(),
       })
-      process.stdout.write(formatAgentCapabilityStatus(status, args.format ?? "table", args.section) + EOL)
+      process.stdout.write(
+        formatAgentCapabilityStatus(status, args.format === "json" ? "json" : "table", args.section) + EOL,
+      )
     } catch (error) {
       platformError(error)
     } finally {
@@ -702,24 +899,46 @@ const AgentPlanPreviewCommand = cmd({
     yargs
       .positional("role", { choices: specialistRoleNames, describe: "existing specialist role to inspect" })
       .option("children", { type: "number", default: 0, describe: "maximum child agents to preview, from 0 to 12" })
-      .option("parallel", { type: "number", default: 1, describe: "maximum total parallel agents to preview, from 1 to 12" })
-      .option("budget", { choices: ["low", "standard", "high"] as const, default: "standard", describe: "preview-only budget class" })
+      .option("parallel", {
+        type: "number",
+        default: 1,
+        describe: "maximum total parallel agents to preview, from 1 to 12",
+      })
+      .option("budget", {
+        choices: ["low", "standard", "high"] as const,
+        default: "standard",
+        describe: "preview-only budget class",
+      })
       .option("format", { choices: ["table", "json"] as const, default: "table", describe: "output format" }),
-  async handler(args: { role: SpecialistRoleName; children?: number; parallel?: number; budget?: "low" | "standard" | "high"; format?: "table" | "json" }) {
+  async handler(args) {
+    if (!args.role) throw new Error("Role is required")
     const preview = createAgentPlanPreview({
       role: args.role,
       children: args.children ?? 0,
       parallel: args.parallel ?? 1,
-      budget: args.budget ?? "standard",
+      budget: args.budget === "low" || args.budget === "high" ? args.budget : "standard",
       device: await collectDeviceReadiness(),
     })
-    process.stdout.write(formatAgentPlanPreview(preview, args.format ?? "table") + EOL)
+    process.stdout.write(formatAgentPlanPreview(preview, args.format === "json" ? "json" : "table") + EOL)
   },
 })
 
 export const AgentCommand = cmd({
   command: "agent",
   describe: "manage agents",
-  builder: (yargs) => yargs.command(AgentCreateCommand).command(AgentListCommand).command(AgentRoleCommand).command(AgentMemoryCommand).command(AgentLearningCommand).command(AgentScheduleCommand).command(AgentGatewayCommand).command(AgentBrowserCommand).command(AgentRunCommand).command(AgentStatusCommand).command(AgentPlanPreviewCommand).demandCommand(),
+  builder: (yargs) =>
+    yargs
+      .command(AgentCreateCommand)
+      .command(AgentListCommand)
+      .command(AgentRoleCommand)
+      .command(AgentMemoryCommand)
+      .command(AgentLearningCommand)
+      .command(AgentScheduleCommand)
+      .command(AgentGatewayCommand)
+      .command(AgentBrowserCommand)
+      .command(AgentRunCommand)
+      .command(AgentStatusCommand)
+      .command(AgentPlanPreviewCommand)
+      .demandCommand(),
   async handler() {},
 })

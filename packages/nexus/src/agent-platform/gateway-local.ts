@@ -15,7 +15,11 @@ export type LocalGatewayState = {
   startedAt: number
 }
 
-export type GatewayCredentialKind = "telegram-bot-token" | "telegram-webhook-secret" | "slack-signing-secret" | "discord-public-key"
+export type GatewayCredentialKind =
+  | "telegram-bot-token"
+  | "telegram-webhook-secret"
+  | "slack-signing-secret"
+  | "discord-public-key"
 
 export function gatewayCredentialName(connectionId: string, kind: GatewayCredentialKind) {
   return `agent-gateway-${connectionId}-${kind}`
@@ -64,9 +68,16 @@ function isLoopbackHost(host: string): host is LocalGatewayState["host"] {
 }
 
 function eventFromTelegram(body: string) {
-  const update = JSON.parse(body) as { update_id?: number; message?: { from?: { id?: number | string }; chat?: { id?: number | string } } }
+  const update = JSON.parse(body) as {
+    update_id?: number
+    message?: { from?: { id?: number | string }; chat?: { id?: number | string } }
+  }
   if (update.update_id == null || update.message?.from?.id == null || update.message.chat?.id == null) return undefined
-  return { eventId: String(update.update_id), senderId: String(update.message.from.id), conversationId: String(update.message.chat.id) }
+  return {
+    eventId: String(update.update_id),
+    senderId: String(update.message.from.id),
+    conversationId: String(update.message.chat.id),
+  }
 }
 
 function eventFromSlack(body: string) {
@@ -76,7 +87,12 @@ function eventFromSlack(body: string) {
 }
 
 function eventFromDiscord(body: string) {
-  const payload = JSON.parse(body) as { id?: string; channel_id?: string; member?: { user?: { id?: string } }; user?: { id?: string } }
+  const payload = JSON.parse(body) as {
+    id?: string
+    channel_id?: string
+    member?: { user?: { id?: string } }
+    user?: { id?: string }
+  }
   const senderId = payload.member?.user?.id ?? payload.user?.id
   if (!payload.id || !payload.channel_id || !senderId) return undefined
   return { eventId: payload.id, senderId, conversationId: payload.channel_id }
@@ -100,7 +116,9 @@ async function readBody(request: import("node:http").IncomingMessage) {
 }
 
 function connectionFor(store: AgentPlatformStore, channel: GatewayChannel, id: string) {
-  return store.listGatewayConnections().find((connection) => connection.id === id && connection.channel === channel && connection.runtimeMode === "local")
+  return store
+    .listGatewayConnections()
+    .find((connection) => connection.id === id && connection.channel === channel && connection.runtimeMode === "local")
 }
 
 export async function startLocalGatewayServer(input: {
@@ -114,38 +132,77 @@ export async function startLocalGatewayServer(input: {
   if (!isLoopbackHost(host)) throw new Error("Local gateway only permits loopback hosts")
   const statePath = input.statePath ?? defaultLocalGatewayStatePath()
   const existing = readLocalGatewayState(statePath)
-  if (existing && isLocalGatewayProcessRunning(existing.pid)) throw new Error(`A local gateway state file already exists for active pid ${existing.pid}; stop that foreground process first`)
+  if (existing && isLocalGatewayProcessRunning(existing.pid))
+    throw new Error(
+      `A local gateway state file already exists for active pid ${existing.pid}; stop that foreground process first`,
+    )
   if (existing) removeLocalGatewayState(statePath)
   const server = createServer(async (request, response) => {
     try {
       if (request.method !== "POST") return json(response, 405, { error: "method_not_allowed" })
-      const match = new URL(request.url ?? "/", "http://localhost").pathname.match(/^\/v1\/gateway\/(telegram|discord|slack)\/([0-9a-f-]{36})$/i)
+      const match = new URL(request.url ?? "/", "http://localhost").pathname.match(
+        /^\/v1\/gateway\/(telegram|discord|slack)\/([0-9a-f-]{36})$/i,
+      )
       if (!match) return json(response, 404, { error: "not_found" })
       const channel = match[1] as GatewayChannel
       const connectionId = match[2]!
       const connection = connectionFor(input.store, channel, connectionId)
       if (!connection || !connection.enabled) return json(response, 404, { error: "connection_not_enabled" })
       const rawBody = await readBody(request)
-      const credential = input.credentialFor(connectionId, channel === "telegram" ? "telegram-webhook-secret" : channel === "slack" ? "slack-signing-secret" : "discord-public-key")
+      const credential = input.credentialFor(
+        connectionId,
+        channel === "telegram"
+          ? "telegram-webhook-secret"
+          : channel === "slack"
+            ? "slack-signing-secret"
+            : "discord-public-key",
+      )
       if (!credential) return json(response, 503, { error: "verification_material_not_configured" })
 
-      const verified = channel === "telegram"
-        ? verifyTelegramWebhook({ expectedSecret: credential, receivedSecret: request.headers["x-telegram-bot-api-secret-token"] as string | undefined })
-        : channel === "slack"
-          ? verifySlackRequest({ signingSecret: credential, rawBody, timestamp: request.headers["x-slack-request-timestamp"] as string | undefined, signature: request.headers["x-slack-signature"] as string | undefined })
-          : verifyDiscordInteraction({ publicKey: credential, rawBody, timestamp: request.headers["x-signature-timestamp"] as string | undefined, signature: request.headers["x-signature-ed25519"] as string | undefined })
+      const verified =
+        channel === "telegram"
+          ? verifyTelegramWebhook({
+              expectedSecret: credential,
+              receivedSecret: request.headers["x-telegram-bot-api-secret-token"] as string | undefined,
+            })
+          : channel === "slack"
+            ? verifySlackRequest({
+                signingSecret: credential,
+                rawBody,
+                timestamp: request.headers["x-slack-request-timestamp"] as string | undefined,
+                signature: request.headers["x-slack-signature"] as string | undefined,
+              })
+            : verifyDiscordInteraction({
+                publicKey: credential,
+                rawBody,
+                timestamp: request.headers["x-signature-timestamp"] as string | undefined,
+                signature: request.headers["x-signature-ed25519"] as string | undefined,
+              })
       if (!verified) return json(response, 401, { error: "invalid_signature" })
 
-      if (channel === "discord" && (JSON.parse(rawBody) as { type?: number }).type === 1) return json(response, 200, { type: 1 })
-      if (channel === "slack" && (JSON.parse(rawBody) as { type?: string }).type === "url_verification") return json(response, 200, { challenge: (JSON.parse(rawBody) as { challenge?: string }).challenge ?? "" })
+      if (channel === "discord" && (JSON.parse(rawBody) as { type?: number }).type === 1)
+        return json(response, 200, { type: 1 })
+      if (channel === "slack" && (JSON.parse(rawBody) as { type?: string }).type === "url_verification")
+        return json(response, 200, { challenge: (JSON.parse(rawBody) as { challenge?: string }).challenge ?? "" })
 
-      const event = channel === "telegram" ? eventFromTelegram(rawBody) : channel === "slack" ? eventFromSlack(rawBody) : eventFromDiscord(rawBody)
+      const event =
+        channel === "telegram"
+          ? eventFromTelegram(rawBody)
+          : channel === "slack"
+            ? eventFromSlack(rawBody)
+            : eventFromDiscord(rawBody)
       if (!event) return json(response, 202, { accepted: false, reason: "unsupported_event" })
       const planned = planGatewayRun(input.store, { schemaVersion: 1, connectionId, ...event })
-      return json(response, planned.reservation.accepted ? 202 : 200, { accepted: planned.reservation.accepted, reason: planned.reservation.reason, runId: planned.run?.id })
+      return json(response, planned.reservation.accepted ? 202 : 200, {
+        accepted: planned.reservation.accepted,
+        reason: planned.reservation.reason,
+        runId: planned.run?.id,
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : "gateway_error"
-      return json(response, message.includes("256 KiB") ? 413 : 400, { error: message.includes("256 KiB") ? "payload_too_large" : "invalid_request" })
+      return json(response, message.includes("256 KiB") ? 413 : 400, {
+        error: message.includes("256 KiB") ? "payload_too_large" : "invalid_request",
+      })
     }
   })
   await new Promise<void>((resolve, reject) => {
@@ -163,7 +220,7 @@ export async function startLocalGatewayServer(input: {
     state,
     async close() {
       await new Promise<void>((resolve, reject) => {
-        server.close((error) => error ? reject(error) : resolve())
+        server.close((error) => (error ? reject(error) : resolve()))
         server.closeAllConnections()
       })
       removeLocalGatewayState(statePath)
@@ -174,7 +231,7 @@ export async function startLocalGatewayServer(input: {
 export async function pollTelegramOnce(input: {
   token: string
   offset?: number
-  fetchImpl?: typeof fetch
+  fetchImpl?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   onUpdate: (update: { eventId: string; senderId: string; conversationId: string }) => void
 }) {
   const fetchImpl = input.fetchImpl ?? fetch
@@ -184,8 +241,9 @@ export async function pollTelegramOnce(input: {
   if (input.offset != null) url.searchParams.set("offset", String(input.offset))
   const response = await fetchImpl(url)
   if (!response.ok) throw new Error(`Telegram polling failed with HTTP ${response.status}`)
-  const payload = await response.json() as { ok?: boolean; description?: string; result?: unknown[] }
-  if (!payload.ok || !Array.isArray(payload.result)) throw new Error(`Telegram polling failed: ${payload.description ?? "unknown response"}`)
+  const payload = (await response.json()) as { ok?: boolean; description?: string; result?: unknown[] }
+  if (!payload.ok || !Array.isArray(payload.result))
+    throw new Error(`Telegram polling failed: ${payload.description ?? "unknown response"}`)
   let nextOffset = input.offset
   let accepted = 0
   for (const raw of payload.result) {

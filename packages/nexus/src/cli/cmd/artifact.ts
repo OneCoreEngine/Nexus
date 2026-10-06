@@ -49,7 +49,10 @@ function findZipEnd(buffer: Buffer): number | undefined {
   return undefined
 }
 
-async function readZipInventory(filePath: string, sizeBytes: number): Promise<{ entries: ArtifactInventoryEntry[]; truncated: boolean }> {
+async function readZipInventory(
+  filePath: string,
+  sizeBytes: number,
+): Promise<{ entries: ArtifactInventoryEntry[]; truncated: boolean }> {
   const handle = await fs.open(filePath, "r")
   try {
     const tailLength = Math.min(sizeBytes, ZIP_TAIL_BYTES)
@@ -155,7 +158,9 @@ export function formatArtifactInspection(inspection: ArtifactInspection, format:
   if (inspection.inventory.length > 0) {
     lines.push("Bounded archive entries:")
     for (const entry of inspection.inventory) {
-      lines.push(`- ${entry.name} (${entry.compressedBytes} compressed / ${entry.uncompressedBytes} uncompressed bytes)`)
+      lines.push(
+        `- ${entry.name} (${entry.compressedBytes} compressed / ${entry.uncompressedBytes} uncompressed bytes)`,
+      )
     }
     if (inspection.inventoryTruncated) lines.push(`- … inventory truncated after ${MAX_INVENTORY_ENTRIES} entries`)
   }
@@ -170,14 +175,20 @@ export const ArtifactInspectCommand = cmd({
   builder: (yargs) =>
     yargs
       .positional("path", { type: "string", demandOption: true, describe: "authorized local artifact path" })
-      .option("authorized", { type: "boolean", default: false, describe: "confirm you are authorized to inspect this artifact" })
+      .option("authorized", {
+        type: "boolean",
+        default: false,
+        describe: "confirm you are authorized to inspect this artifact",
+      })
       .option("format", { choices: ["table", "json"] as const, default: "table", describe: "output format" }),
-  async handler(args: { path: string; authorized?: boolean; format?: "table" | "json" }) {
+  async handler(args) {
     if (!args.authorized) {
-      throw new Error("Refusing artifact inspection without --authorized. Inspect only artifacts you own or are authorized to analyze.")
+      throw new Error(
+        "Refusing artifact inspection without --authorized. Inspect only artifacts you own or are authorized to analyze.",
+      )
     }
     const inspection = await inspectAuthorizedArtifact(args.path)
-    process.stdout.write(formatArtifactInspection(inspection, args.format ?? "table") + EOL)
+    process.stdout.write(formatArtifactInspection(inspection, args.format === "json" ? "json" : "table") + EOL)
   },
 })
 

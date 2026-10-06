@@ -65,6 +65,11 @@ export function experimentalWebSocketsEnabled(input: { enabled: boolean; channel
 
 // Built-in plugins that are directly imported (not installed from npm)
 function internalPlugins(flags: RuntimeFlags.Info): PluginInstance[] {
+  const adaptExternalPlugin =
+    (plugin: Function): PluginInstance =>
+    async (input, options) =>
+      Reflect.apply(plugin, undefined, [input, options])
+
   return [
     // Temporary rollout: pre-release builds use WebSockets by default; releases require explicit opt-in.
     (input) =>
@@ -73,8 +78,8 @@ function internalPlugins(flags: RuntimeFlags.Info): PluginInstance[] {
       }),
     CopilotAuthPlugin,
     ModalPlugin,
-    GitlabAuthPlugin,
-    PoeAuthPlugin,
+    adaptExternalPlugin(GitlabAuthPlugin),
+    adaptExternalPlugin(PoeAuthPlugin),
     CloudflareWorkersAuthPlugin,
     CloudflareAIGatewayAuthPlugin,
     AzureAuthPlugin,

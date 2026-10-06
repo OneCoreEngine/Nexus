@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process"
+import type { Dirent } from "node:fs"
 import { readdir } from "node:fs/promises"
 import { promisify } from "node:util"
 import { join, relative } from "node:path"
@@ -104,9 +105,7 @@ export type MasterWorkerOperations = {
     signal?: AbortSignal
   }) => Promise<readonly ProjectCheckResult[]>
   runCoderStep?: (input: CoderStepInput) => Promise<CoderStepResult>
-  runResearchStep?: (
-    input: CoderStepInput,
-  ) => Promise<ResearchStepResult>
+  runResearchStep?: (input: CoderStepInput) => Promise<ResearchStepResult>
   runDocsStep?: (input: CoderStepInput) => Promise<DocsStepResult>
 }
 
@@ -163,7 +162,7 @@ async function findBuildArtifacts(root: string, signal?: AbortSignal): Promise<s
   const roots = ["dist", "build/outputs/apk", "build/outputs/bundle", "out"]
   const scan = async (directory: string, depth: number): Promise<void> => {
     if (signal?.aborted || depth > 4 || artifacts.length >= 100) return
-    let entries: Awaited<ReturnType<typeof readdir>>
+    let entries: Dirent<string>[]
     try {
       entries = await readdir(directory, { withFileTypes: true })
     } catch {
@@ -572,8 +571,7 @@ function researchWorker(): MasterWorker {
         })
         return {
           summary: result.summary,
-          verification:
-            result.verification ?? ["Research notes recorded with sources and constraints."],
+          verification: result.verification ?? ["Research notes recorded with sources and constraints."],
           next: result.next,
         }
       }
@@ -654,7 +652,7 @@ function reviewerWorker(): MasterWorker {
         verification: [
           result.branch ? `Branch: ${result.branch}` : "Branch: unavailable",
           `Working tree: ${result.clean ? "clean" : "changed"}`,
-          ...(files.slice(0, 20).map((file) => `Changed: ${file}`)),
+          ...files.slice(0, 20).map((file) => `Changed: ${file}`),
           "Remaining risks must be fixed before the tester step can pass.",
         ],
         receipts: [
@@ -746,7 +744,7 @@ function docsWorker(): MasterWorker {
         changedFiles: docs,
         verification: [
           "Only guide-scoped changes are accepted in this step.",
-          ...(docs.slice(0, 20).map((file) => `Guide: ${file}`)),
+          ...docs.slice(0, 20).map((file) => `Guide: ${file}`),
         ],
       }
     },
@@ -769,7 +767,7 @@ export function createMasterWorkerRegistry(operations: MasterWorkerOperations = 
           url: page.url,
           status: page.status,
           title: page.title,
-          html: page.text,
+          html: page.textPreview,
           summary: `Inspected public page (${page.status})${page.title ? `: ${page.title}` : ""}.`,
         }
       }),

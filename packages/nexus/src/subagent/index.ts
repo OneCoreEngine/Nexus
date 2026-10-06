@@ -1,10 +1,7 @@
-import { Effect, Context, Schema, Layer } from "effect"
+import { Effect, Context, Schema, Layer, Schedule } from "effect"
 import { LayerNode } from "@nexus-ai/core/effect/layer-node"
-import { FSUtil } from "@nexus-ai/core/fs-util"
-import { Global } from "@nexus-ai/core/global"
-import { path } from "@nexus-ai/core/effect/app-node-platform"
 import { randomUUID } from "crypto"
-import { spawn, type ChildProcess } from "node:child_process"
+import { spawn as spawnProcess, type ChildProcess } from "node:child_process"
 import { join } from "node:path"
 
 export interface SubagentConfig {
@@ -61,61 +58,61 @@ export class Service extends Context.Service<Service, SubagentInterface>()("@nex
 const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const fsys = yield* FSUtil.Service
-    const global = yield* Global.Service
-    const crypto = yield* Crypto.Service
-    const path = yield* path.Path
-
     const subagents = new Map<string, SubagentStatus>()
     const children = new Map<string, ChildProcess>()
 
     const runAgent = (id: string, config: SubagentConfig) =>
-      Effect.async<SubagentResult, SubagentError>((resume) => {
-        const startedAt = Date.now()
-        const entry = join(__dirname, "..", "index.ts")
-        const args = [entry, "run", config.objective]
-        if (config.model) args.push("--model", config.model)
-        args.push("--dir", config.workingDirectory)
+      Effect.tryPromise({
+        try: () =>
+          new Promise<SubagentResult>((resolve, reject) => {
+            const startedAt = Date.now()
+            const entry = join(__dirname, "..", "index.ts")
+            const args = [entry, "run", config.objective]
+            if (config.model) args.push("--model", config.model)
+            args.push("--dir", config.workingDirectory)
 
-        const child = spawn(process.execPath, args, {
-          cwd: config.workingDirectory,
-          env: { ...process.env, ...config.environment },
-          stdio: ["ignore", "pipe", "pipe"],
-        })
-        children.set(id, child)
+            const child = spawnProcess(process.execPath, args, {
+              cwd: config.workingDirectory,
+              env: { ...process.env, ...config.environment },
+              stdio: ["ignore", "pipe", "pipe"],
+            })
+            children.set(id, child)
 
-        let stdout = ""
-        let stderr = ""
-        const maxCapture = 16_000
+            let stdout = ""
+            let stderr = ""
+            const maxCapture = 16_000
 
-        child.stdout?.on("data", (chunk: Buffer) => {
-          stdout += chunk.toString("utf8")
-          if (stdout.length > maxCapture) stdout = stdout.slice(stdout.length - maxCapture)
-        })
-        child.stderr?.on("data", (chunk: Buffer) => {
-          stderr += chunk.toString("utf8")
-          if (stderr.length > maxCapture) stderr = stderr.slice(stderr.length - maxCapture)
-        })
-        child.on("error", (error) => {
-          children.delete(id)
-          resume(Effect.fail(new SubagentError({ message: error.message, subagentId: id })))
-        })
-        child.on("close", (code) => {
-          children.delete(id)
-          const durationMs = Date.now() - startedAt
-          const output = stdout.trim()
-          const message = stderr.trim()
-          resume(
-            Effect.succeed({
-              id,
-              success: code === 0,
-              output,
-              error: code === 0 ? undefined : message || `subagent exited with code ${code}`,
-              turns: 0,
-              durationMs,
-            }),
-          )
-        })
+            child.stdout?.on("data", (chunk: Buffer) => {
+              stdout += chunk.toString("utf8")
+              if (stdout.length > maxCapture) stdout = stdout.slice(stdout.length - maxCapture)
+            })
+            child.stderr?.on("data", (chunk: Buffer) => {
+              stderr += chunk.toString("utf8")
+              if (stderr.length > maxCapture) stderr = stderr.slice(stderr.length - maxCapture)
+            })
+            child.on("error", (error) => {
+              children.delete(id)
+              reject(new SubagentError({ message: error.message, subagentId: id }))
+            })
+            child.on("close", (code) => {
+              children.delete(id)
+              const durationMs = Date.now() - startedAt
+              const output = stdout.trim()
+              const message = stderr.trim()
+              resolve({
+                id,
+                success: code === 0,
+                output,
+                error: code === 0 ? undefined : message || `subagent exited with code ${code}`,
+                turns: 0,
+                durationMs,
+              })
+            })
+          }),
+        catch: (error) =>
+          error instanceof SubagentError
+            ? error
+            : new SubagentError({ message: error instanceof Error ? error.message : String(error), subagentId: id }),
       })
 
     const spawn = Effect.fn("Subagent.spawn")(function* (config: SubagentConfig) {
@@ -144,23 +141,25 @@ const layer = Layer.effect(
           status.result = result
           subagents.set(id, { ...status })
         }).pipe(
-          Effect.catchAll((error) => {
-            const message =
-              typeof error === "object" && error !== null && "message" in error
-                ? String((error as { message: unknown }).message)
-                : String(error)
-            const errorResult: SubagentResult = {
-              id,
-              success: false,
-              error: message,
-              turns: 0,
-              durationMs: Date.now() - (status.startedAt || Date.now()),
-            }
-            status.state = "failed"
-            status.completedAt = Date.now()
-            status.result = errorResult
-            subagents.set(id, { ...status })
-          }),
+          Effect.catch((error) =>
+            Effect.sync(() => {
+              const message =
+                typeof error === "object" && error !== null && "message" in error
+                  ? String((error as { message: unknown }).message)
+                  : String(error)
+              const errorResult: SubagentResult = {
+                id,
+                success: false,
+                error: message,
+                turns: 0,
+                durationMs: Date.now() - (status.startedAt || Date.now()),
+              }
+              status.state = "failed"
+              status.completedAt = Date.now()
+              status.result = errorResult
+              subagents.set(id, { ...status })
+            }),
+          ),
         ),
       )
 
@@ -176,7 +175,7 @@ const layer = Layer.effect(
     })
 
     const wait = Effect.fn("Subagent.wait")(function* (id: string) {
-      const status = yield* getStatus
+      const status = yield* getStatus(id)
       if (status.state === "completed" || status.state === "failed") {
         if (!status.result) {
           return yield* Effect.fail(new SubagentError({ message: "No result available", subagentId: id }))
@@ -187,7 +186,7 @@ const layer = Layer.effect(
       // Wait for completion with polling
       return yield* Effect.retry(
         Effect.gen(function* () {
-          const s = yield* getStatus
+          const s = yield* getStatus(id)
           if (s.state === "completed" || s.state === "failed") {
             if (!s.result) {
               return yield* Effect.fail(new SubagentError({ message: "No result available", subagentId: id }))
@@ -198,7 +197,7 @@ const layer = Layer.effect(
         }),
         {
           times: 100,
-          schedule: Effect.Schedule.spaced("1 second"),
+          schedule: Schedule.spaced("1 second"),
         },
       )
     })
@@ -241,7 +240,7 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [FSUtil.node, Global.node, path, Crypto.node],
+  deps: [],
 })
 
 export * as Subagent from "."

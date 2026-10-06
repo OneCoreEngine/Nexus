@@ -10,10 +10,14 @@ async function termuxApi() {
   return Effect.runPromise(Effect.promise(() => import("@nexus/termux-api")).pipe(Effect.map((mod) => mod.TermuxAPI)))
 }
 
+function runTermuxEffect<A>(effect: unknown): Promise<A> {
+  return Effect.runPromise(effect as Effect.Effect<A, unknown>)
+}
+
 async function batteryPercent(): Promise<number> {
   try {
     const api = await termuxApi()
-    return batteryOf(await Effect.runPromise(api.getBatteryStatus()))
+    return batteryOf(await runTermuxEffect(api.getBatteryStatus()))
   } catch {
     return 100
   }
@@ -22,7 +26,7 @@ async function batteryPercent(): Promise<number> {
 async function notify(title: string, body: string): Promise<boolean> {
   try {
     const api = await termuxApi()
-    await Effect.runPromise(api.notify(title, body))
+    await runTermuxEffect(api.notify(title, body))
     return true
   } catch {
     return false

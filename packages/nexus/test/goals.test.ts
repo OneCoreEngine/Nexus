@@ -25,7 +25,15 @@ describe("session goals", () => {
     expect(readGoals(undefined)).toEqual([])
     expect(readGoals({})).toEqual([])
     expect(readGoals({ nexusGoals: "nope" })).toEqual([])
-    expect(readGoals({ nexusGoals: [goal(), { junk: true }, goal({ id: "b", status: "bogus" })] })).toEqual([goal()])
+    expect(
+      readGoals({
+        nexusGoals: [
+          goal(),
+          { junk: true },
+          { id: "b", title: "Ship it", status: "bogus", createdAt: 1000, updatedAt: 1000 },
+        ],
+      }),
+    ).toEqual([goal()])
   })
 
   test("stageGoal upserts by id and preserves sibling keys", () => {

@@ -1,10 +1,27 @@
 import { EOL } from "node:os"
 import { cmd } from "./cmd"
 import { Effect } from "effect"
-import { apiVaultKeyPath, apiVaultPublicRows, apiVaultRows, getApiUsageBudget, getApiVaultStatus } from "../../api/ApiVault"
+import {
+  apiVaultKeyPath,
+  apiVaultPublicRows,
+  apiVaultRows,
+  getApiUsageBudget,
+  getApiVaultStatus,
+} from "../../api/ApiVault"
 import { formatApiReadiness, formatApiRoutePreview, formatApiUsageBudget, formatApiVaultList } from "./api"
-import { formatSpecialistRole, formatSpecialistRoles, specialistRoleNames, type SpecialistRoleName } from "./agent-roles"
-import { agentCapabilityStatus, agentCapabilitySections, formatAgentCapabilityStatus, type AgentCapabilitySection, type AgentCapabilityStatus } from "./agent-status"
+import {
+  formatSpecialistRole,
+  formatSpecialistRoles,
+  specialistRoleNames,
+  type SpecialistRoleName,
+} from "./agent-roles"
+import {
+  agentCapabilityStatus,
+  agentCapabilitySections,
+  formatAgentCapabilityStatus,
+  type AgentCapabilitySection,
+  type AgentCapabilityStatus,
+} from "./agent-status"
 import { createAgentPlanPreview, formatAgentPlanPreview, type AgentPlanPreview } from "./agent-plan-preview"
 import { collectDeviceReadiness, formatDeviceReadiness } from "./device"
 import { formatInstructionExplanation, formatInstructionStatus } from "./instructions"
@@ -153,8 +170,7 @@ const intentRules: readonly IntentRule[] = [
     command: "route preview",
   },
   {
-    pattern:
-      /(?:api|requests?|tokens?).*(?:budget|caps?|limits?)|(?:budget|caps?|limits?).*(?:api|requests?|tokens?)/i,
+    pattern: /(?:api|requests?|tokens?).*(?:budget|caps?|limits?)|(?:budget|caps?|limits?).*(?:api|requests?|tokens?)/i,
     category: "api-status",
     plugin: "api",
     command: "budget",
@@ -180,7 +196,8 @@ const intentRules: readonly IntentRule[] = [
     command: "status",
   },
   {
-    pattern: /(?:agent\s*)?roles?.*(?:list|all|available|saare|sab)|(?:list|all|available|saare|sab).*(?:agent\s*)?roles?/i,
+    pattern:
+      /(?:agent\s*)?roles?.*(?:list|all|available|saare|sab)|(?:list|all|available|saare|sab).*(?:agent\s*)?roles?/i,
     category: "agent-role",
     plugin: "agent",
     command: "role list",
@@ -319,7 +336,12 @@ export type IntentExecutionOptions = {
   /** Test-only local agent capability fixture; production only reads existing local metadata. */
   agentCapabilityStatus?: () => Promise<AgentCapabilityStatus>
   /** Test-only non-persistent preview fixture; production observes only current local device signals. */
-  agentPlanPreview?: (input: { role: SpecialistRoleName; children: number; parallel: number; budget: "low" | "standard" | "high" }) => Promise<AgentPlanPreview>
+  agentPlanPreview?: (input: {
+    role: SpecialistRoleName
+    children: number
+    parallel: number
+    budget: "low" | "standard" | "high"
+  }) => Promise<AgentPlanPreview>
 }
 
 function roleNamedIn(value: string): SpecialistRoleName | undefined {
@@ -330,7 +352,9 @@ function blockedExecution(inspection: IntentInspection, reason: string): IntentE
   return { ...inspection, execution: "blocked", reason }
 }
 
-function requestedTranslationLanguages(value: string): { source: TranslationLanguage; target: TranslationLanguage } | undefined {
+function requestedTranslationLanguages(
+  value: string,
+): { source: TranslationLanguage; target: TranslationLanguage } | undefined {
   const names = new RegExp(`\\b(${translationLanguages.join("|")})\\b`, "gi")
   const found: TranslationLanguage[] = []
   for (const match of value.matchAll(names)) {
@@ -400,9 +424,11 @@ type AgentPlanPreviewRequest = {
 
 function singlePlanNumber(value: string, noun: "children" | "parallel"): number | undefined | "ambiguous" {
   const singular = noun === "children" ? "child(?:ren)?" : "parallel"
-  const matches = Array.from(value.matchAll(new RegExp(`(?:\\b(-?\\d+)\\s+${singular}\\b|\\b${singular}\\s+(-?\\d+)\\b)`, "gi")))
-    .map((match) => Number(match[1] ?? match[2]))
-  if (matches.length > 1 || (new RegExp(`\\b${singular}\\b`, "i").test(value) && matches.length !== 1)) return "ambiguous"
+  const matches = Array.from(
+    value.matchAll(new RegExp(`(?:\\b(-?\\d+)\\s+${singular}\\b|\\b${singular}\\s+(-?\\d+)\\b)`, "gi")),
+  ).map((match) => Number(match[1] ?? match[2]))
+  if (matches.length > 1 || (new RegExp(`\\b${singular}\\b`, "i").test(value) && matches.length !== 1))
+    return "ambiguous"
   return matches[0]
 }
 
@@ -412,11 +438,23 @@ function requestedAgentPlanPreview(value: string): AgentPlanPreviewRequest | "am
   const children = singlePlanNumber(value, "children")
   const parallel = singlePlanNumber(value, "parallel")
   if (children === "ambiguous" || parallel === "ambiguous") return "ambiguous"
-  const budgetMatches = Array.from(value.matchAll(/(?:\b(low|standard|high)\s+budget\b|\bbudget\s+(low|standard|high)\b)/gi))
-    .map((match) => (match[1] ?? match[2]) as "low" | "standard" | "high")
+  const budgetMatches = Array.from(
+    value.matchAll(/(?:\b(low|standard|high)\s+budget\b|\bbudget\s+(low|standard|high)\b)/gi),
+  ).map((match) => (match[1] ?? match[2]) as "low" | "standard" | "high")
   if (budgetMatches.length > 1 || (/\bbudget\b/i.test(value) && budgetMatches.length !== 1)) return "ambiguous"
-  const request = { role: roles[0], children: children ?? 0, parallel: parallel ?? 1, budget: budgetMatches[0] ?? "standard" }
-  if (request.children < 0 || request.children > 12 || request.parallel < 1 || request.parallel > 12 || request.parallel > request.children + 1)
+  const request = {
+    role: roles[0],
+    children: children ?? 0,
+    parallel: parallel ?? 1,
+    budget: budgetMatches[0] ?? "standard",
+  }
+  if (
+    request.children < 0 ||
+    request.children > 12 ||
+    request.parallel < 1 ||
+    request.parallel > 12 ||
+    request.parallel > request.children + 1
+  )
     return "ambiguous"
   return request
 }
@@ -445,7 +483,10 @@ async function localAgentCapabilityStatus(options: IntentExecutionOptions): Prom
   }
 }
 
-async function localAgentPlanPreview(request: AgentPlanPreviewRequest, options: IntentExecutionOptions): Promise<AgentPlanPreview> {
+async function localAgentPlanPreview(
+  request: AgentPlanPreviewRequest,
+  options: IntentExecutionOptions,
+): Promise<AgentPlanPreview> {
   if (options.agentPlanPreview) return options.agentPlanPreview(request)
   return createAgentPlanPreview({ ...request, device: await collectDeviceReadiness() })
 }
@@ -488,7 +529,10 @@ async function localPermissionExplanation(
  * model/provider, validates keys, changes vault/route state, or forwards the user
  * message to another subsystem.
  */
-export async function executeLocalIntent(value: string, options: IntentExecutionOptions = {}): Promise<IntentExecution> {
+export async function executeLocalIntent(
+  value: string,
+  options: IntentExecutionOptions = {},
+): Promise<IntentExecution> {
   const inspection = inspectIntent(value)
   if (inspection.confidence !== "high") {
     return blockedExecution(inspection, "Only a bounded, high-confidence read-only local intent may be executed.")
@@ -515,13 +559,21 @@ export async function executeLocalIntent(value: string, options: IntentExecution
       return {
         ...inspection,
         execution: "executed",
-        result: formatApiReadiness({ autoRotate: status.autoRotate, budget: getApiUsageBudget(), rows: apiVaultRows() }),
+        result: formatApiReadiness({
+          autoRotate: status.autoRotate,
+          budget: getApiUsageBudget(),
+          rows: apiVaultRows(),
+        }),
       }
     }
   }
   if (inspection.category === "memory") {
     if (inspection.command === "status") {
-      return { ...inspection, execution: "executed", result: formatMemoryStatus(memoryStatus(options.memoryStateDirectory), "table") }
+      return {
+        ...inspection,
+        execution: "executed",
+        result: formatMemoryStatus(memoryStatus(options.memoryStateDirectory), "table"),
+      }
     }
     if (inspection.command === "list") {
       return {
@@ -555,9 +607,16 @@ export async function executeLocalIntent(value: string, options: IntentExecution
       )
     }
     try {
-      return { ...inspection, execution: "executed", result: formatAgentCapabilityStatus(await localAgentCapabilityStatus(options), "table", section) }
+      return {
+        ...inspection,
+        execution: "executed",
+        result: formatAgentCapabilityStatus(await localAgentCapabilityStatus(options), "table", section),
+      }
     } catch {
-      return blockedExecution(inspection, "The local agent capability metadata could not be read; no runtime, schedule, agent, gateway, or configuration state changed.")
+      return blockedExecution(
+        inspection,
+        "The local agent capability metadata could not be read; no runtime, schedule, agent, gateway, or configuration state changed.",
+      )
     }
   }
   if (inspection.category === "agent-plan-preview" && inspection.command === "plan preview") {
@@ -575,13 +634,21 @@ export async function executeLocalIntent(value: string, options: IntentExecution
       )
     }
     try {
-      return { ...inspection, execution: "executed", result: formatAgentPlanPreview(await localAgentPlanPreview(request, options), "table") }
+      return {
+        ...inspection,
+        execution: "executed",
+        result: formatAgentPlanPreview(await localAgentPlanPreview(request, options), "table"),
+      }
     } catch {
-      return blockedExecution(inspection, "The bounded local plan preview could not be prepared; no run, agent, queue, schedule, source, session, provider, or remote state changed.")
+      return blockedExecution(
+        inspection,
+        "The bounded local plan preview could not be prepared; no run, agent, queue, schedule, source, session, provider, or remote state changed.",
+      )
     }
   }
   if (inspection.category === "agent-role") {
-    if (inspection.command === "role list") return { ...inspection, execution: "executed", result: formatSpecialistRoles("table") }
+    if (inspection.command === "role list")
+      return { ...inspection, execution: "executed", result: formatSpecialistRoles("table") }
     if (inspection.command === "role show") {
       const role = roleNamedIn(value)
       return role
@@ -600,10 +667,16 @@ export async function executeLocalIntent(value: string, options: IntentExecution
     try {
       return { ...inspection, execution: "executed", result: await localPermissionExplanation(category, options) }
     } catch {
-      return blockedExecution(inspection, "The local fixed-category permission explanation could not be read; no rule or configuration changed.")
+      return blockedExecution(
+        inspection,
+        "The local fixed-category permission explanation could not be read; no rule or configuration changed.",
+      )
     }
   }
-  if (inspection.category === "translation" && (inspection.command === "plan" || inspection.command === "confirmed report")) {
+  if (
+    inspection.category === "translation" &&
+    (inspection.command === "plan" || inspection.command === "confirmed report")
+  ) {
     const languages = requestedTranslationLanguages(value)
     if (!languages) {
       return blockedExecution(
@@ -667,7 +740,8 @@ export async function executeLocalIntent(value: string, options: IntentExecution
   }
   if (inspection.category === "model-route" && inspection.command === "route preview") {
     const alias = requestedKnownModelAlias(value)
-    if (!alias) return blockedExecution(inspection, "Name one supported route alias: deepseek, llama 3.1, gemini, or gpt-4.")
+    if (!alias)
+      return blockedExecution(inspection, "Name one supported route alias: deepseek, llama 3.1, gemini, or gpt-4.")
     return {
       ...inspection,
       execution: "executed",
@@ -679,7 +753,8 @@ export async function executeLocalIntent(value: string, options: IntentExecution
     return { ...inspection, execution: "executed", result: formatDeviceReadiness(readiness, "table") }
   }
   if (inspection.category === "instructions") {
-    if (inspection.command === "explain") return { ...inspection, execution: "executed", result: formatInstructionExplanation() }
+    if (inspection.command === "explain")
+      return { ...inspection, execution: "executed", result: formatInstructionExplanation() }
     if (inspection.command === "status") {
       const directory = process.cwd()
       return { ...inspection, execution: "executed", result: formatInstructionStatus(directory, directory) }
@@ -707,9 +782,15 @@ export async function executeLocalIntent(value: string, options: IntentExecution
       const project = projects.find((item) => item.id === projectID)
       return project
         ? { ...inspection, execution: "executed", result: formatWorkspaceDetail(project, "table") }
-        : blockedExecution(inspection, "The requested known workspace was unavailable; no directory was scanned or changed.")
+        : blockedExecution(
+            inspection,
+            "The requested known workspace was unavailable; no directory was scanned or changed.",
+          )
     } catch {
-      return blockedExecution(inspection, "The local known-project registry could not be read; no discovery scan, selection, or state change occurred.")
+      return blockedExecution(
+        inspection,
+        "The local known-project registry could not be read; no discovery scan, selection, or state change occurred.",
+      )
     }
   }
   if (inspection.category === "workspace" && inspection.command === "selected") {
@@ -741,7 +822,8 @@ export function formatIntentExecution(result: IntentExecution, format: "table" |
   if (format === "json") return JSON.stringify(result, null, 2)
   const confirmedMutation =
     result.execution === "executed" &&
-    (result.category === "workspace-mutation" || (result.category === "translation" && result.command === "confirmed report"))
+    (result.category === "workspace-mutation" ||
+      (result.category === "translation" && result.command === "confirmed report"))
   const lines = [
     `Category: ${result.category}`,
     `Suggested local route: ${result.plugin && result.command ? `${result.plugin}:${result.command}` : "none"}`,
@@ -757,14 +839,15 @@ export function formatIntentExecution(result: IntentExecution, format: "table" |
         ? `Execution boundary: only the explicitly confirmed new ${CONFIRMED_TRANSLATION_REPORT} metadata report was created; no source content was read, model/provider called, code transformed, existing file overwritten, shell command executed, or remote request made.`
         : result.category === "agent-plan-preview" && result.execution === "executed"
           ? "Execution boundary: only a bounded local policy preview was formatted from observed device signals; no run, agent, queue, schedule, source, session, provider, credential, remote request, or persistent state changed."
-        : "Execution boundary: no model call, plugin load, shell execution, remote request, key check, write, route selection, or persistent preference occurred.",
+          : "Execution boundary: no model call, plugin load, shell execution, remote request, key check, write, route selection, or persistent preference occurred.",
   )
   return lines.join(EOL)
 }
 
 export const IntentCommand = cmd({
   command: "intent <message..>",
-  describe: "inspect a bounded Hinglish/English intent locally; mutations require explicit execution and confirmation flags",
+  describe:
+    "inspect a bounded Hinglish/English intent locally; mutations require explicit execution and confirmation flags",
   builder: (yargs) =>
     yargs
       .positional("message", {
@@ -784,14 +867,19 @@ export const IntentCommand = cmd({
         default: false,
         describe: "separately confirm the one supported local mutation; has no effect without --execute-local",
       }),
-  async handler(args: { message: string[]; format?: "table" | "json"; executeLocal?: boolean; confirmLocal?: boolean }) {
+  async handler(args) {
     const message = args.message.join(" ")
     if (args.executeLocal) {
       process.stdout.write(
-        formatIntentExecution(await executeLocalIntent(message, { confirmLocal: args.confirmLocal }), args.format ?? "table") + EOL,
+        formatIntentExecution(
+          await executeLocalIntent(message, { confirmLocal: args.confirmLocal }),
+          args.format === "json" ? "json" : "table",
+        ) + EOL,
       )
       return
     }
-    process.stdout.write(formatIntentInspection(inspectIntent(message), args.format ?? "table") + EOL)
+    process.stdout.write(
+      formatIntentInspection(inspectIntent(message), args.format === "json" ? "json" : "table") + EOL,
+    )
   },
 })

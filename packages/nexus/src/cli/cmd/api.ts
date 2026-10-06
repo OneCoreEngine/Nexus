@@ -226,7 +226,9 @@ async function runWizard(): Promise<void> {
           ? await prompts.text({
               message: "Cloudflare Account ID (required for Workers AI)",
               validate: (value) =>
-                /^[a-f0-9]{32}$/i.test(value.trim()) ? undefined : "Enter the 32-character Account ID from Cloudflare",
+                typeof value === "string" && /^[a-f0-9]{32}$/i.test(value.trim())
+                  ? undefined
+                  : "Enter the 32-character Account ID from Cloudflare",
             })
           : undefined
       if (prompts.isCancel(accountId)) continue
@@ -259,7 +261,7 @@ const AddCommand = cmd({
       .positional("key", { type: "string", describe: "API key" })
       .positional("label", { type: "string", describe: "optional label" })
       .option("account-id", { type: "string", describe: "required Cloudflare Account ID for cloudflare-workers-ai" }),
-  async handler(args: { provider?: string; key?: string; label?: string; accountId?: string }) {
+  async handler(args) {
     if (!args.provider) {
       await runWizard()
       return
@@ -369,8 +371,10 @@ const RemoveCommand = cmd({
   command: "remove <provider> <index>",
   describe: "remove a key by provider and one-based index",
   builder: (yargs: Argv) => yargs.positional("index", { type: "number", describe: "one-based key index" }),
-  async handler(args: { provider: string; index: number }) {
+  async handler(args) {
     try {
+      if (typeof args.provider !== "string" || typeof args.index !== "number")
+        throw new Error("Provider and numeric index are required")
       const removed = vaultRemoveApiKey(args.provider, args.index)
       process.stdout.write(
         `✓ Removed ${args.provider.toLowerCase()} key #${args.index} (${removed.label}, ${maskApiKey(removed.key)})\n`,
@@ -386,7 +390,7 @@ const RotateCommand = cmd({
   command: "rotate <state>",
   describe: "turn automatic provider/key rotation on or off",
   builder: (yargs: Argv) => yargs.positional("state", { type: "string", choices: ["on", "off"] as const }),
-  async handler(args: { state: "on" | "off" }) {
+  async handler(args) {
     setAutoRotation(args.state === "on")
     process.stdout.write(`✓ API rotation ${args.state}\n`)
   },
@@ -399,10 +403,15 @@ const RouteCommand = cmd({
     yargs
       .option("format", { choices: ["table", "json"] as const, default: "table" })
       .option("tier", { choices: ["low", "medium", "high"] as const, describe: "Edge Router capability tier" }),
-  async handler(args: { model: string; format?: "table" | "json"; tier?: "low" | "medium" | "high" }) {
-    const routes = routeModel(args.model, { tier: args.tier })
+  async handler(args) {
+    if (typeof args.model !== "string") throw new Error("Model is required")
+    const tier = args.tier === "low" || args.tier === "medium" || args.tier === "high" ? args.tier : undefined
+    const routes = routeModel(args.model, { tier })
     process.stdout.write(
-      formatApiRoutePreview({ model: args.model, routes, rows: apiVaultPublicRows() }, args.format ?? "table") + "\n",
+      formatApiRoutePreview(
+        { model: args.model, routes, rows: apiVaultPublicRows() },
+        args.format === "json" ? "json" : "table",
+      ) + "\n",
     )
   },
 })
@@ -411,11 +420,13 @@ const ReadinessCommand = cmd({
   command: "readiness",
   describe: "summarize local vault health, cooldown, usage, and cap evidence without checking providers",
   builder: (yargs: Argv) => yargs.option("format", { choices: ["table", "json"] as const, default: "table" }),
-  async handler(args: { format?: "table" | "json" }) {
+  async handler(args) {
     const vault = getApiVaultStatus()
     process.stdout.write(
-      formatApiReadiness({ autoRotate: vault.autoRotate, budget: getApiUsageBudget(), rows: apiVaultRows() }, args.format ?? "table") +
-        "\n",
+      formatApiReadiness(
+        { autoRotate: vault.autoRotate, budget: getApiUsageBudget(), rows: apiVaultRows() },
+        args.format === "json" ? "json" : "table",
+      ) + "\n",
     )
   },
 })

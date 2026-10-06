@@ -6,7 +6,9 @@ describe("incident watcher", () => {
     const reports: string[] = []
     const watcher = createIncidentWatcher({
       device: { platform: "android", termux: true, architecture: "arm64", adbConnected: false, nativeCapabilities: [] },
-      onReport: (report) => reports.push(report.incidents[0]?.message ?? ""),
+      onReport: (report) => {
+        reports.push(report.incidents[0]?.message ?? "")
+      },
     })
     expect(watcher.intervalMs).toBe(30_000)
     await watcher.ingest("[worker] api_key=private-token failed")

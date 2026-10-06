@@ -9,8 +9,9 @@ import {
   saveCapabilityRegistry,
   upsertFeature,
 } from "./capability-registry"
+import type { AgentCapabilities } from "./capabilities"
 
-const capabilities = {
+const capabilities: AgentCapabilities = {
   platform: "linux",
   architecture: "x64",
   termux: false,
@@ -24,7 +25,7 @@ const capabilities = {
   androidDevice: false,
   apkBuild: true,
   packageManagers: ["bun"],
-} as const
+}
 
 describe("capability registry", () => {
   test("persists feature records atomically and reloads them", async () => {

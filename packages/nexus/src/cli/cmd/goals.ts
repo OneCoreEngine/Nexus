@@ -86,7 +86,7 @@ export const GoalsCommand = cmd({
       .command(GoalsListCommand)
       .command(GoalsSetCommand)
       .command(statusCommand("done"))
-      .command(statusCommand("drop"))
+      .command(statusCommand("dropped"))
       .demandCommand(),
   async handler() {},
 })

@@ -17,7 +17,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
-function packageManager(root: string): ProjectTarget["packageManager"] {
+function packageManager(root: string): NonNullable<ProjectTarget["packageManager"]> {
   if (existsSync(join(root, "bun.lock")) || existsSync(join(root, "bun.lockb"))) return "bun"
   if (existsSync(join(root, "pnpm-lock.yaml"))) return "pnpm"
   if (existsSync(join(root, "yarn.lock"))) return "yarn"

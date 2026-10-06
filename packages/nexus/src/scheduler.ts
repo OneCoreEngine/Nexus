@@ -116,7 +116,13 @@ export function parseCron(expr: string): CronFields | undefined {
     dayOfWeek: parseField(dayOfWeek, 0, 6),
   }
   if (!parsed.minute || !parsed.hour || !parsed.dayOfMonth || !parsed.month || !parsed.dayOfWeek) return undefined
-  return parsed
+  return {
+    minute: parsed.minute,
+    hour: parsed.hour,
+    dayOfMonth: parsed.dayOfMonth,
+    month: parsed.month,
+    dayOfWeek: parsed.dayOfWeek,
+  }
 }
 
 function matchesDay(date: Date, cron: CronFields): boolean {

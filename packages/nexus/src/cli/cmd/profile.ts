@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs"
 import path from "node:path"
 import { parse } from "jsonc-parser"
+import type { Argv } from "yargs"
 import { Global } from "@nexus-ai/core/global"
 import {
   TASK_PROFILES,
@@ -27,7 +28,9 @@ export const ProfileCommand = {
         describe: "list available profiles",
         handler: () => {
           for (const profile of Object.values(TASK_PROFILES)) {
-            console.log(`${profile.name.padEnd(9)} ${profile.label} — ${profile.preference}, ${profile.outputBudget} output, max ${profile.maxParallel} parallel`)
+            console.log(
+              `${profile.name.padEnd(9)} ${profile.label} — ${profile.preference}, ${profile.outputBudget} output, max ${profile.maxParallel} parallel`,
+            )
           }
         },
       })
@@ -36,19 +39,19 @@ export const ProfileCommand = {
         describe: "show the active profile",
         handler: () => console.log(JSON.stringify(currentTaskProfile(), null, 2)),
       })
-      .command({
-        command: "set <name>",
-        describe: "set the default profile; manual model and task settings still override it",
-        builder: (command) => command.positional("name", { choices, type: "string" }),
-        handler: async (args: { name: TaskProfileName }) => {
-          const profile = await setTaskProfile(args.name)
+      .command(
+        "set <name>",
+        "set the default profile; manual model and task settings still override it",
+        (command) => command.positional("name", { choices, type: "string" }),
+        async (args) => {
+          const profile = await setTaskProfile(args.name as TaskProfileName)
           console.log(`Task profile set to ${profile.label}.`)
         },
-      })
+      )
       .command({
         command: "runtime",
         describe: "show the resolved runtime profile and boot composition",
-        builder: (command) =>
+        builder: (command: Argv) =>
           command
             .option("profile", { type: "string", describe: "override the profile for this printout" })
             .option("json", { type: "boolean", default: false, describe: "print machine-readable output" }),

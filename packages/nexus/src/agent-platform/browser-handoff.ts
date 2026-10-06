@@ -20,7 +20,7 @@ export type BrowserPageInspection = {
 }
 
 export type BrowserPageInspectionOptions = {
-  fetch?: typeof globalThis.fetch
+  fetch?: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>
   timeoutMs?: number
   maxPreviewChars?: number
   signal?: AbortSignal

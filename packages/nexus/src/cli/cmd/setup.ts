@@ -1,5 +1,5 @@
 import { cmd } from "./cmd"
-import { effectCmd, fail } from "../effect-cmd"
+import { CliError, effectCmd, fail } from "../effect-cmd"
 import { UI } from "../ui"
 import * as Prompt from "../effect/prompt"
 import { Effect, Option } from "effect"
@@ -31,7 +31,10 @@ export type OllamaInstallPlan = { command?: string[]; message: string }
 export const ollamaInstallPlan = (environment: RuntimeEnvironment): OllamaInstallPlan => {
   switch (environment) {
     case "termux":
-      return { command: ["pkg", "install", "-y", "ollama"], message: "Installing Ollama with the native Termux package manager..." }
+      return {
+        command: ["pkg", "install", "-y", "ollama"],
+        message: "Installing Ollama with the native Termux package manager...",
+      }
     case "macos":
       return { command: ["brew", "install", "ollama"], message: "Installing Ollama with Homebrew..." }
     case "windows":
@@ -41,7 +44,10 @@ export const ollamaInstallPlan = (environment: RuntimeEnvironment): OllamaInstal
     case "proot":
     case "andronix":
     case "userland":
-      return { message: "Ollama is not installed. Install it using your distribution's supported method, then rerun `nexus setup ollama`. NEXUS does not execute remote installer scripts automatically." }
+      return {
+        message:
+          "Ollama is not installed. Install it using your distribution's supported method, then rerun `nexus setup ollama`. NEXUS does not execute remote installer scripts automatically.",
+      }
   }
 }
 
@@ -93,7 +99,12 @@ function setupSafeURL(url: string) {
 
 export function isChatModelID(id: string, provider: KeyProvider): boolean {
   const lower = id.toLowerCase()
-  if (/(?:whisper|audio|speech|tts|image|vision|embedding|embed|moderation|rerank|guard|safety|transcription)/i.test(lower)) return false
+  if (
+    /(?:whisper|audio|speech|tts|image|vision|embedding|embed|moderation|rerank|guard|safety|transcription)/i.test(
+      lower,
+    )
+  )
+    return false
   if (provider === "groq") return /(?:llama|mixtral|gemma|qwen|deepseek)/i.test(lower)
   if (provider === "openrouter") return /(?:free|llama|mistral|gemma|qwen|deepseek|hermes|gpt)/i.test(lower)
   return /gemini-(?:3(?:\.\d+)?|2\.5|2\.0|1\.5)-(?:flash|pro)/i.test(id)
@@ -103,8 +114,13 @@ async function setupResponseOK(provider: string, response: Response, url: string
   console.log(`Response status: ${response.status}`)
   if (!response.ok) {
     if (setupDebugEnabled()) {
-      const body = await response.clone().text().catch(() => "<unreadable response body>")
-      console.error(`[NEXUS API] setup provider=${provider} status=${response.status} url=${setupSafeURL(url)} body=${body.slice(0, 2000)}`)
+      const body = await response
+        .clone()
+        .text()
+        .catch(() => "<unreadable response body>")
+      console.error(
+        `[NEXUS API] setup provider=${provider} status=${response.status} url=${setupSafeURL(url)} body=${body.slice(0, 2000)}`,
+      )
     }
     console.error(`❌ Key invalid / network error (HTTP ${response.status})`)
   }
@@ -137,7 +153,9 @@ async function validateKey(provider: KeyProvider, key: string): Promise<boolean>
       const safeFallback = provider === "groq" || provider === "openrouter" ? FALLBACK[provider] : undefined
       const model =
         preferred.find((id) => ids.includes(id)) ??
-        ids.find((id) => preferred.some((wanted) => id.startsWith(wanted.split(":")[0])) && isChatModelID(id, provider)) ??
+        ids.find(
+          (id) => preferred.some((wanted) => id.startsWith(wanted.split(":")[0])) && isChatModelID(id, provider),
+        ) ??
         (safeFallback && ids.includes(safeFallback) ? safeFallback : undefined) ??
         ids.find((id) => isChatModelID(id, provider))
       if (!model) {
@@ -165,9 +183,7 @@ async function validateKey(provider: KeyProvider, key: string): Promise<boolean>
       .map((item) => item.name?.replace(/^models\//, ""))
       .filter((id): id is string => Boolean(id))
     const preferred = PREFERRED_MODELS.google
-    const model =
-      preferred.find((id) => ids.includes(id)) ??
-      ids.find((id) => isChatModelID(id, provider))
+    const model = preferred.find((id) => ids.includes(id)) ?? ids.find((id) => isChatModelID(id, provider))
     if (!model) {
       console.error(`❌ No compatible text-generation model found in the Gemini catalog.`)
       return false
@@ -193,6 +209,13 @@ function appendUnique(existing: string[] | undefined, value: string): string[] {
   return Array.from(new Set([...(existing ?? []), value]))
 }
 
+function processExit(exited: Promise<number>) {
+  return Effect.tryPromise({
+    try: () => exited,
+    catch: (error) => new CliError({ message: `Process failed: ${String(error)}` }),
+  })
+}
+
 export const SetupOllamaCommand = effectCmd({
   command: "ollama",
   describe: "Install or configure Ollama, then pull a local model",
@@ -202,21 +225,23 @@ export const SetupOllamaCommand = effectCmd({
     yield* Prompt.intro("Installing Ollama")
 
     const environment = detectRuntimeEnvironment()
-    const existingProc = Process.spawn(["ollama", "--version"], { stdio: "ignore" })
+    const existingProc = Process.spawn(["ollama", "--version"], { stdout: "ignore", stderr: "ignore" })
     const available = (yield* Effect.tryPromise(() => existingProc.exited).pipe(Effect.orElseSucceed(() => -1))) === 0
     if (!available) {
       const plan = ollamaInstallPlan(environment)
       if (!plan.command) return yield* fail(plan.message)
       yield* Prompt.log.info(plan.message)
-      const installProc = Process.spawn(plan.command, { stdio: "inherit" })
-      const installCode = yield* Effect.tryPromise(() => installProc.exited)
+      const installProc = Process.spawn(plan.command, { stdin: "inherit", stdout: "inherit", stderr: "inherit" })
+      const installCode = yield* processExit(installProc.exited)
       if (installCode !== 0) {
-        return yield* fail(`Ollama could not be installed. ${plan.message} If the package manager is unavailable, install Ollama manually and rerun this command.`)
+        return yield* fail(
+          `Ollama could not be installed. ${plan.message} If the package manager is unavailable, install Ollama manually and rerun this command.`,
+        )
       }
     }
 
     yield* Prompt.log.info("Starting Ollama service...")
-    const serveProc = Process.spawn(["ollama", "serve"], { stdio: "ignore" })
+    const serveProc = Process.spawn(["ollama", "serve"], { stdout: "ignore", stderr: "ignore" })
     void serveProc.exited
 
     const model = arm64RecommendedModel() ?? "llama3"
@@ -225,52 +250,73 @@ export const SetupOllamaCommand = effectCmd({
       return yield* fail(`Device Guard blocked this download: ${guard.warnings.join(" ")}`)
     }
     if (guard.warnings.length > 0) {
-      const accepted = yield* Effect.tryPromise(() => confirmLargeDownload(`Device Guard warning: ${guard.warnings.join(" ")}`))
-      if (!accepted) return yield* fail("Model download cancelled by Device Guard. Charge/cool the device or confirm interactively when ready.")
+      const accepted = yield* Effect.tryPromise({
+        try: () => confirmLargeDownload(`Device Guard warning: ${guard.warnings.join(" ")}`),
+        catch: (error) => new CliError({ message: `Device Guard confirmation failed: ${String(error)}` }),
+      })
+      if (!accepted)
+        return yield* fail(
+          "Model download cancelled by Device Guard. Charge/cool the device or confirm interactively when ready.",
+        )
     }
-    const warning = yield* Effect.tryPromise(() => largeDownloadWarning(4 * 1024 * 1024 * 1024))
-    if (warning && !(yield* Effect.tryPromise(() => confirmLargeDownload(warning)))) {
-      return yield* fail("Model download cancelled. Connect to Wi-Fi or confirm the download interactively, then run `nexus setup ollama` again.")
+    const warning = yield* Effect.tryPromise({
+      try: () => largeDownloadWarning(4 * 1024 * 1024 * 1024),
+      catch: (error) => new CliError({ message: `Download warning check failed: ${String(error)}` }),
+    })
+    if (
+      warning &&
+      !(yield* Effect.tryPromise({
+        try: () => confirmLargeDownload(warning),
+        catch: (error) => new CliError({ message: `Download confirmation failed: ${String(error)}` }),
+      }))
+    ) {
+      return yield* fail(
+        "Model download cancelled. Connect to Wi-Fi or confirm the download interactively, then run `nexus setup ollama` again.",
+      )
     }
     yield* Prompt.log.info(`Pulling ${model} (up to 4GB, ~10 mins on WiFi)...`)
-    const pullProc = Process.spawn(["ollama", "pull", model], { stdio: "inherit" })
-    const pullCode = yield* Effect.tryPromise(() => pullProc.exited)
+    const pullProc = Process.spawn(["ollama", "pull", model], {
+      stdin: "inherit",
+      stdout: "inherit",
+      stderr: "inherit",
+    })
+    const pullCode = yield* processExit(pullProc.exited)
     if (pullCode !== 0) return yield* fail("Ollama installed, but llama3 could not be pulled.")
 
     const { path: configPath, data: cfg } = readNexusConfig()
     cfg.model = `ollama/${model}`
     cfg.provider = {
-        ...(cfg.provider ?? {}),
-        ollama: {
-          name: "Ollama",
-          api: "http://127.0.0.1:11434/v1",
-          npm: "@ai-sdk/openai-compatible",
-          env: [],
-          models: {
-            [model]: {
-              id: model,
-              name: "Llama 3 (local)",
-              reasoning: false,
-              tool_call: true,
-              modalities: { input: ["text"], output: ["text"] },
-            },
-            phi3: {
-              id: "phi3",
-              name: "Phi-3 (local)",
-              reasoning: false,
-              tool_call: true,
-              modalities: { input: ["text"], output: ["text"] },
-            },
-            "qwen2.5-coder": {
-              id: "qwen2.5-coder",
-              name: "Qwen 2.5 Coder (local)",
-              reasoning: false,
-              tool_call: true,
-              modalities: { input: ["text"], output: ["text"] },
-            },
+      ...(cfg.provider ?? {}),
+      ollama: {
+        name: "Ollama",
+        api: "http://127.0.0.1:11434/v1",
+        npm: "@ai-sdk/openai-compatible",
+        env: [],
+        models: {
+          [model]: {
+            id: model,
+            name: "Llama 3 (local)",
+            reasoning: false,
+            tool_call: true,
+            modalities: { input: ["text"], output: ["text"] },
+          },
+          phi3: {
+            id: "phi3",
+            name: "Phi-3 (local)",
+            reasoning: false,
+            tool_call: true,
+            modalities: { input: ["text"], output: ["text"] },
+          },
+          "qwen2.5-coder": {
+            id: "qwen2.5-coder",
+            name: "Qwen 2.5 Coder (local)",
+            reasoning: false,
+            tool_call: true,
+            modalities: { input: ["text"], output: ["text"] },
           },
         },
-      }
+      },
+    }
     writeNexusConfig(configPath, cfg)
 
     yield* Prompt.log.success("✅ Ready! Using local model.")
@@ -301,18 +347,19 @@ export const SetupFreeCommand = effectCmd({
       if (existing.length > 0) {
         const verified: string[] = []
         for (const key of existing) {
-          const ok = yield* Effect.tryPromise({
-            try: () => validateKey(provider, key),
-            catch: () => false,
-          })
+          const ok = yield* Effect.promise(() => validateKey(provider, key).catch(() => false))
           if (ok) verified.push(key)
         }
         current[provider === "google" ? "gemini" : provider] = verified
         if (verified.length > 0) {
-          yield* Prompt.log.info(`${labels[provider]} verified (${verified.length} key${verified.length === 1 ? "" : "s"})`)
+          yield* Prompt.log.info(
+            `${labels[provider]} verified (${verified.length} key${verified.length === 1 ? "" : "s"})`,
+          )
           valid += verified.length
         } else {
-          yield* Prompt.log.warn(`${labels[provider]} keys are invalid or unavailable; enter a new key to replace them.`)
+          yield* Prompt.log.warn(
+            `${labels[provider]} keys are invalid or unavailable; enter a new key to replace them.`,
+          )
         }
       }
 
@@ -326,10 +373,7 @@ export const SetupFreeCommand = effectCmd({
         continue
       }
 
-      const ok = yield* Effect.tryPromise({
-        try: () => validateKey(provider, key),
-        catch: () => false,
-      })
+      const ok = yield* Effect.promise(() => validateKey(provider, key).catch(() => false))
       if (!ok) {
         yield* Prompt.log.error(`${provider} key validation failed; it was not saved.`)
         continue
@@ -376,7 +420,10 @@ export const SetupTermuxCommand = effectCmd({
   describe: "Configure Termux keyboard and clipboard-paste extra keys",
   instance: false,
   handler: Effect.fn("Cli.setup.termux")(function* () {
-    const result = yield* Effect.tryPromise(() => setupTermuxKeyboard())
+    const result = yield* Effect.tryPromise({
+      try: () => setupTermuxKeyboard(),
+      catch: (error) => new CliError({ message: String(error) }),
+    })
     if (!result.configured) {
       yield* Prompt.log.warn(result.message)
       return
@@ -389,6 +436,7 @@ export const SetupTermuxCommand = effectCmd({
 export const SetupCommand = cmd({
   command: "setup",
   describe: "Setup providers and models",
-  builder: (yargs) => yargs.command(SetupOllamaCommand).command(SetupFreeCommand).command(SetupTermuxCommand).demandCommand(),
+  builder: (yargs) =>
+    yargs.command(SetupOllamaCommand).command(SetupFreeCommand).command(SetupTermuxCommand).demandCommand(),
   async handler() {},
 })

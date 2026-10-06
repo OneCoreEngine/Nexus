@@ -493,17 +493,19 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
       run.promise(
         Effect.gen(function* () {
           const ctx = context(args, opts)
+          const defaultPolicy: Policy = { decision: "allow", args }
           const policy = yield* plugin.trigger(
             "tool.policy",
             { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId, args },
-            { decision: "allow" as const, args },
+            defaultPolicy,
           )
           const effectiveArgs = yield* applyPolicy(policy, () =>
             ctx.ask({ permission: key, metadata: {}, patterns: [key], always: [key] }),
           )
           // A policy ask already prompted for this exact tool; the blanket
           // ask below would prompt a second time for the same call.
-          const askedByPolicy = policy.decision === "ask"
+          const policyDecision: Policy["decision"] = policy.decision
+          const askedByPolicy = policyDecision === "ask"
           yield* plugin.trigger(
             "tool.execute.before",
             { tool: key, sessionID: ctx.sessionID, callID: opts.toolCallId },

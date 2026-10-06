@@ -39,6 +39,7 @@ import {
   modelForAgent,
   isTextGenerationCandidate,
   PREFERRED_MODELS,
+  ollamaBaseURL,
 } from "./rotation"
 import {
   apiVaultKeyEntries,
@@ -788,8 +789,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             headers.set("Authorization", `Bearer ${token.token}`)
 
             let response = await fetch(input, { ...init, headers })
-            if (response.status === 401 && client.refreshAccessToken) {
-              token = await client.refreshAccessToken()
+            if (response.status === 401) {
+              token = await client.getAccessToken()
               if (!token?.token) throw new Error("google-vertex: failed to refresh access token")
               headers.set("Authorization", `Bearer ${token.token}`)
               response = await fetch(input, { ...init, headers })
@@ -2176,13 +2177,14 @@ const layer = Layer.effect(
       // common CLI shape where the provider prefix is accidentally retained
       // in modelID. This keeps `provider/model` stable across CLI/server hops.
       const normalizedModelID = modelID.startsWith(`${providerID}/`) ? modelID.slice(providerID.length + 1) : modelID
+      const normalizedModelIDValue = ModelV2.ID.make(normalizedModelID)
       const info = provider.models[normalizedModelID]
       if (!info) {
-        const current = modelSuggestions(provider, normalizedModelID, runtimeFlags.enableExperimentalModels)
+        const current = modelSuggestions(provider, normalizedModelIDValue, runtimeFlags.enableExperimentalModels)
         const suggestions = current.length
           ? current
-          : modelSuggestions(s.catalog[providerID], normalizedModelID, runtimeFlags.enableExperimentalModels)
-        return yield* new ModelNotFoundError({ providerID, modelID: normalizedModelID, suggestions })
+          : modelSuggestions(s.catalog[providerID], normalizedModelIDValue, runtimeFlags.enableExperimentalModels)
+        return yield* new ModelNotFoundError({ providerID, modelID: normalizedModelIDValue, suggestions })
       }
       return info
     })
@@ -2267,11 +2269,7 @@ const layer = Layer.effect(
       // large flagship models can have smaller limits than a provider's small
       // model, and inferred models without family metadata are not safe picks.
       const candidates = Object.values(provider.models).filter(
-        (model) =>
-          Boolean(model.family) &&
-          model.capabilities?.toolcall !== false &&
-          model.capabilities?.tool_call !== false &&
-          model.status !== "deprecated",
+        (model) => Boolean(model.family) && model.capabilities?.toolcall !== false && model.status !== "deprecated",
       )
       for (const family of smallModelFamilyPriority) {
         const match = candidates
@@ -2298,7 +2296,7 @@ const layer = Layer.effect(
         )
         if (provider && stale) {
           const preferred = modelForProvider(configured.providerID, provider.models)
-          if (preferred) return { providerID: configured.providerID, modelID: preferred }
+          if (preferred) return { providerID: configured.providerID, modelID: ModelV2.ID.make(preferred) }
         }
         const configuredInfo = provider?.models[configured.modelID]
         if (
@@ -2345,15 +2343,15 @@ const layer = Layer.effect(
         .filter((p) => configured.length === 0 || configured.includes(p.id))
         .filter((p) => hasUsableProviderCredential(p, effectiveApiKeys))
         .sort((a, b) => providerPriority(a.id) - providerPriority(b.id) || a.id.localeCompare(b.id))
-      
+
       // Live health check: verify the first available key actually works
       for (const provider of candidates) {
-        const isHealthy = yield* Effect.tryPromise({
-          try: () => checkProviderHealth(provider.id, effectiveApiKeys, provider.key),
-          catch: () => false,
-        })
+        const isHealthy = yield* Effect.tryPromise(() =>
+          checkProviderHealth(provider.id, effectiveApiKeys, provider.key),
+        ).pipe(Effect.orElseSucceed(() => false))
         if (isHealthy) {
-          const preferred = modelForAgent(provider.id, provider.models) ?? modelForProvider(provider.id, provider.models)
+          const preferred =
+            modelForAgent(provider.id, provider.models) ?? modelForProvider(provider.id, provider.models)
           if (preferred) {
             return {
               providerID: provider.id,
@@ -2364,11 +2362,11 @@ const layer = Layer.effect(
           if (!model) return yield* new NoModelsError({ providerID: provider.id })
           return {
             providerID: provider.id,
-            modelID: model.id,
+            modelID: ModelV2.ID.make(model.id),
           }
         }
       }
-      
+
       return yield* new NoProvidersError()
     })
 

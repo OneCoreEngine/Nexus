@@ -1,6 +1,5 @@
 import { Effect, Context, Schema, Layer } from "effect"
 import { LayerNode } from "@nexus-ai/core/effect/layer-node"
-import { LLMSchema } from "@nexus-ai/core/llm"
 
 export interface Message {
   role: "user" | "assistant" | "system"
@@ -29,7 +28,10 @@ export class CompressionError extends Schema.TaggedErrorClass<CompressionError>(
 }) {}
 
 export interface CompressionInterface {
-  readonly compress: (messages: Message[], options?: CompressionOptions) => Effect.Effect<CompressionResult, CompressionError>
+  readonly compress: (
+    messages: Message[],
+    options?: CompressionOptions,
+  ) => Effect.Effect<CompressionResult, CompressionError>
   readonly estimateTokens: (text: string) => number
 }
 
@@ -46,12 +48,7 @@ const layer = Layer.effect(
       messages: Message[],
       options: CompressionOptions = {},
     ) {
-      const {
-        maxTokens = 8000,
-        targetRatio = 0.5,
-        preserveRecent = 10,
-        strategy = "hybrid",
-      } = options
+      const { maxTokens = 8000, targetRatio = 0.5, preserveRecent = 10, strategy = "hybrid" } = options
 
       if (messages.length <= preserveRecent) {
         const totalTokens = messages.reduce((sum, m) => sum + estimateTokens(m.content), 0)
@@ -75,9 +72,7 @@ const layer = Layer.effect(
       let compressedContent: string
 
       if (strategy === "summary" || strategy === "hybrid") {
-        compressedContent = yield* summarizeConversation(olderContent, targetTokens).pipe(
-          Effect.catchAll(() => Effect.succeed(extractiveCompress(olderContent, targetTokens))),
-        )
+        compressedContent = yield* Effect.promise(() => summarizeConversation(olderContent, targetTokens))
       } else {
         compressedContent = extractiveCompress(olderContent, targetTokens)
       }

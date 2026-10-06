@@ -1,6 +1,8 @@
+import { describe, expect, test } from "bun:test"
 import { classifyAdaptiveIntent, createRequirementMemory, reviseRequirementMemory } from "./adaptive-intent"
+import type { AgentCapabilities } from "./capabilities"
 
-const capabilities = {
+const capabilities: AgentCapabilities = {
   platform: "linux",
   architecture: "x64",
   termux: false,
@@ -14,7 +16,7 @@ const capabilities = {
   androidDevice: false,
   apkBuild: true,
   packageManagers: ["bun"],
-} as const
+}
 
 describe("adaptive intent", () => {
   test("derives coordinated web, browser, and bug-fix workers", () => {

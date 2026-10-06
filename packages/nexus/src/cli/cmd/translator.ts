@@ -2,7 +2,7 @@ import fs from "node:fs/promises"
 import path from "node:path"
 import { EOL } from "node:os"
 import { Effect } from "effect"
-import { effectCmd, fail } from "../effect-cmd"
+import { CliError, effectCmd, fail } from "../effect-cmd"
 import { cmd } from "./cmd"
 
 export const translationLanguages = ["typescript", "javascript", "python", "php", "go"] as const
@@ -181,32 +181,26 @@ export const TranslatorPlanCommand = effectCmd({
         type: "boolean",
         default: false,
       }),
-  handler: Effect.fn("Cli.translator.plan")(function* (args: {
-    scope?: string
-    from?: TranslationLanguage
-    to?: TranslationLanguage
-    maxFiles?: number
-    format?: "table" | "json"
-    report?: string
-    confirm?: boolean
-  }) {
+  handler: Effect.fn("Cli.translator.plan")(function* (args) {
     if (!args.from || !args.to) return yield* fail("Both --from and --to are required")
+    const from = args.from
+    const to = args.to
     const maxFiles = args.maxFiles ?? 50
     if (!Number.isInteger(maxFiles) || maxFiles < 1 || maxFiles > 100) {
       return yield* fail("--max-files must be an integer from 1 to 100")
     }
-    if (args.from === args.to) return yield* fail("--from and --to must be different languages")
+    if (from === to) return yield* fail("--from and --to must be different languages")
 
     const root = process.cwd()
     const scope = args.scope ?? "."
     const collected = yield* Effect.tryPromise({
-      try: () => collectTranslationFiles({ root, scope, language: args.from!, maxFiles }),
-      catch: (error) => error,
+      try: () => collectTranslationFiles({ root, scope, language: from, maxFiles }),
+      catch: (error) => new CliError({ message: `Unable to scan translation files: ${String(error)}` }),
     })
     const relativeScope = path.relative(root, path.resolve(root, scope)) || "."
     const plan = createTranslationPlan({
-      source: args.from,
-      target: args.to,
+      source: from,
+      target: to,
       scope: relativeScope,
       files: collected.files,
       truncated: collected.truncated,
@@ -215,7 +209,7 @@ export const TranslatorPlanCommand = effectCmd({
       if (!args.confirm) return yield* fail("Creating a translation report requires --confirm")
       const reportPath = yield* Effect.tryPromise({
         try: () => writeTranslationReport({ root, output: args.report!, plan }),
-        catch: (error) => error,
+        catch: (error) => new CliError({ message: `Unable to write translation report: ${String(error)}` }),
       })
       process.stdout.write(
         `Manual-review report created at ${reportPath}. It contains plan metadata only; no source was read or translated.${EOL}`,

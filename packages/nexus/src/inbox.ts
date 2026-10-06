@@ -50,7 +50,7 @@ export const inject = Effect.fn("Inbox.inject")(function* (input: { sessionID: s
   const model =
     lastUser?.info.role === "user" && lastUser.info.model ? lastUser.info.model : yield* provider.defaultModel()
   const { message, part } = buildInjection({
-    sessionID: input.sessionID,
+    sessionID,
     text: input.text,
     agent: input.agent ?? info.agent ?? "build",
     model,
